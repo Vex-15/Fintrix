@@ -75,7 +75,12 @@ app.include_router(websocket.router, prefix="/api", tags=["WebSocket"])
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "fintrix-backend", "version": "1.0.0"}
+    return {
+        "status": "ok", 
+        "service": "fintrix-backend", 
+        "version": "1.0.0",
+        "demo_mode": settings.demo_mode
+    }
 
 
 @app.get("/api/scheduler/status")

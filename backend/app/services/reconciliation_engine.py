@@ -37,16 +37,35 @@ EXPECTED_GST_RATE = 0.18
 FEE_TOLERANCE_PAISE = 100  # Allow ±₹1 tolerance for rounding
 
 
-def _compute_severity(amount_at_risk: int) -> str:
-    """Deterministic severity based on amount."""
-    if amount_at_risk < 10000:        # < ₹100
-        return "low"
-    elif amount_at_risk < 1000000:    # < ₹10,000
-        return "medium"
-    elif amount_at_risk < 10000000:   # < ₹1,00,000
-        return "high"
+async def compute_priority(db: AsyncSession, amount_at_risk: int, exc_type: str, merchant_id: str | None = None) -> tuple[str, str]:
+    """
+    Deterministic severity based on amount, with priority rationale based on DB history.
+    Returns (severity, rationale).
+    """
+    if amount_at_risk < 10000:
+        severity = "low"
+    elif amount_at_risk < 1000000:
+        severity = "medium"
+    elif amount_at_risk < 10000000:
+        severity = "high"
     else:
-        return "critical"
+        severity = "critical"
+
+    query = select(func.count(Exception_.id)).where(Exception_.type == exc_type, Exception_.status == "detected")
+    if merchant_id:
+        query = query.where(Exception_.merchant_id == merchant_id)
+        
+    recent_count = (await db.execute(query)).scalar() or 0
+    
+    rationale = f"Base severity '{severity}' due to amount at risk (₹{amount_at_risk/100:,.2f}). "
+    if recent_count > 5:
+        rationale += f"Elevated priority: {recent_count} recent unresolved exceptions of type '{exc_type}' detected."
+        if severity == "low": severity = "medium"
+        elif severity == "medium": severity = "high"
+    else:
+        rationale += "No significant recurring pattern detected."
+        
+    return severity, rationale
 
 
 async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", merchant_id: str | None = None) -> ReconciliationRun:
@@ -135,10 +154,12 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
             match_status = "mismatched"
             match_type = "aggregate"
 
+            sev, rat = await compute_priority(db, difference, "amount_mismatch", merchant_id)
             exc = Exception_(
                 run_id=run.id,
                 type="amount_mismatch",
-                severity=_compute_severity(difference),
+                severity=sev,
+
                 status="detected",
                 amount_at_risk=difference,
                 merchant_id=merchant_id,
@@ -153,6 +174,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                     "total_refunds": total_refunds,
                     "payment_ids": [t.id for t in payments],
                     "refund_ids": [t.id for t in refunds],
+                    "priority_rationale": rat,
                 },
             )
             db.add(exc)
@@ -220,10 +242,12 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
             match_status = "mismatched"
 
         if difference > 0 and match.final_score < AUTO_MATCH_THRESHOLD:
+            exc_t = "amount_mismatch" if difference > 10 else "rounding_difference"
+            sev, rat = await compute_priority(db, difference, exc_t, merchant_id) if difference > 10 else ("low", "Rounding difference.")
             exc = Exception_(
                 run_id=run.id,
-                type="amount_mismatch" if difference > 10 else "rounding_difference",
-                severity=_compute_severity(difference) if difference > 10 else "low",
+                type=exc_t,
+                severity=sev,
                 status="detected",
                 amount_at_risk=difference,
                 merchant_id=merchant_id,
@@ -236,6 +260,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                     "source": "ensemble_matching",
                     "ensemble_score": match.final_score,
                     "strategy_scores": match.details.get("strategy_scores", {}),
+                    "priority_rationale": rat,
                 },
             )
             db.add(exc)
@@ -256,6 +281,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                 "ensemble_type": match.match_type,
                 "strategy_scores": match.details.get("strategy_scores", {}),
                 "weighted_scores": match.details.get("weighted_scores", {}),
+                "explanation": match.explanation,
                 "utr": setl.utr,
             },
         )
@@ -266,10 +292,11 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
     matched_setl_in_bank = {m.settlement_id for m in ensemble_results}
     for setl in settlements:
         if setl.utr and setl.id not in matched_setl_in_bank:
+            sev, rat = await compute_priority(db, setl.amount, "missing_bank_entry", merchant_id)
             exc = Exception_(
                 run_id=run.id,
                 type="missing_bank_entry",
-                severity=_compute_severity(setl.amount),
+                severity=sev,
                 status="detected",
                 amount_at_risk=setl.amount,
                 merchant_id=merchant_id,
@@ -278,6 +305,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                     "settlement_amount": setl.amount,
                     "utr": setl.utr,
                     "settlement_status": setl.status,
+                    "priority_rationale": rat,
                 },
             )
             db.add(exc)
@@ -293,10 +321,11 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
         if txn.id in matched_txn_ids:
             continue
         if txn.type == "payment" and txn.status == "captured" and not txn.settlement_id:
+            sev, rat = await compute_priority(db, txn.amount, "missing_settlement", merchant_id)
             exc = Exception_(
                 run_id=run.id,
                 type="missing_settlement",
-                severity=_compute_severity(txn.amount),
+                severity=sev,
                 status="detected",
                 amount_at_risk=txn.amount,
                 merchant_id=merchant_id,
@@ -307,6 +336,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                     "order_id": txn.order_id,
                     "method": txn.method,
                     "captured_at": txn.captured_at.isoformat() if txn.captured_at else None,
+                    "priority_rationale": rat,
                 },
             )
             db.add(exc)
@@ -315,10 +345,11 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                             new_state={"type": "missing_settlement"})
 
         elif txn.type == "adjustment" and not txn.settlement_id:
+            sev, rat = await compute_priority(db, txn.amount, "unexpected_adjustment", merchant_id)
             exc = Exception_(
                 run_id=run.id,
                 type="unexpected_adjustment",
-                severity=_compute_severity(txn.amount),
+                severity=sev,
                 status="detected",
                 amount_at_risk=txn.amount,
                 merchant_id=merchant_id,
@@ -327,6 +358,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                     "amount": txn.amount,
                     "description": txn.description,
                     "created_at": txn.created_at.isoformat() if txn.created_at else None,
+                    "priority_rationale": rat,
                 },
             )
             db.add(exc)
@@ -357,10 +389,11 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
         for i in range(1, len(group)):
             time_diff = (group[i].created_at - group[i - 1].created_at).total_seconds()
             if abs(time_diff) <= 1800:  # within 30 minutes
+                sev, rat = await compute_priority(db, group[i].amount, "duplicate_suspected", merchant_id)
                 exc = Exception_(
                     run_id=run.id,
                     type="duplicate_suspected",
-                    severity=_compute_severity(group[i].amount),
+                    severity=sev,
                     status="detected",
                     amount_at_risk=group[i].amount,
                     merchant_id=merchant_id,
@@ -371,6 +404,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                         "method": group[i].method,
                         "order_id": group[i].order_id,
                         "time_diff_seconds": time_diff,
+                        "priority_rationale": rat,
                     },
                 )
                 db.add(exc)
@@ -392,10 +426,11 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
         fee_diff = abs(txn.fee - expected_fee)
 
         if fee_diff > FEE_TOLERANCE_PAISE:
+            sev, rat = await compute_priority(db, fee_diff, "fee_discrepancy", merchant_id)
             exc = Exception_(
                 run_id=run.id,
                 type="fee_discrepancy",
-                severity=_compute_severity(fee_diff),
+                severity=sev,
                 status="detected",
                 amount_at_risk=fee_diff,
                 merchant_id=merchant_id,
@@ -408,6 +443,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                     "recorded_tax": txn.tax,
                     "expected_tax": expected_tax,
                     "method": txn.method,
+                    "priority_rationale": rat,
                 },
             )
             db.add(exc)
@@ -430,10 +466,11 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
 
         if txn.created_at > setl.created_at:
             time_diff = (txn.created_at - setl.created_at).total_seconds()
+            sev, rat = await compute_priority(db, txn.amount, "timing_mismatch", merchant_id)
             exc = Exception_(
                 run_id=run.id,
                 type="timing_mismatch",
-                severity="medium",
+                severity=sev,
                 status="detected",
                 amount_at_risk=txn.amount,
                 merchant_id=merchant_id,
@@ -446,6 +483,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                     "delay_seconds": time_diff,
                     "order_id": txn.order_id,
                     "description": txn.description,
+                    "priority_rationale": rat,
                 },
             )
             db.add(exc)

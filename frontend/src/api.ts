@@ -127,6 +127,11 @@ export const api = {
     window.dispatchEvent(new Event("fintrix:logout"));
   },
 
+  health: async () => {
+    const res = await fetch(`${API_BASE.replace('/api', '')}/health`);
+    return res.json();
+  },
+  
   getProfile: () => request<UserProfile>("/auth/me"),
   updateProfile: (data: { name?: string; password?: string }) =>
     request<UserProfile>("/auth/me", { method: "PUT", body: JSON.stringify(data) }),

@@ -281,3 +281,66 @@ async def get_dashboard_stats(
         },
         "recent_exceptions": recent_exceptions,
     }
+
+
+@router.get("/runs/{run_id}/evaluate")
+async def evaluate_run(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Compare a run's detected exceptions against the synthetic ground truth."""
+    from app.utils.synthetic_data import generate_dataset
+    
+    # 1. Fetch ground truth
+    dataset = generate_dataset()
+    ground_truth = dataset["ground_truth"]["planted_exceptions"]
+    
+    # 2. Fetch detected exceptions for this run
+    result = await db.execute(select(Exception_).where(Exception_.run_id == run_id))
+    detected = result.scalars().all()
+    
+    # 3. Match them up
+    # Ground truth is uniquely identified by (transaction_id, type)
+    gt_map = {(gt["transaction_id"], gt["type"]): gt for gt in ground_truth}
+    det_map = {}
+    
+    for d in detected:
+        # Detected transaction_id might be a CSV or a single ID.
+        # Simplistic matching for evaluation:
+        key = (d.transaction_id, d.type)
+        det_map[key] = d
+
+    true_positives = 0
+    false_positives = 0
+    false_negatives = 0
+    
+    matched_details = []
+    
+    for key, gt in gt_map.items():
+        if key in det_map:
+            true_positives += 1
+            matched_details.append({"expected": gt, "detected": True})
+        else:
+            false_negatives += 1
+            matched_details.append({"expected": gt, "detected": False})
+            
+    for key, det in det_map.items():
+        if key not in gt_map:
+            false_positives += 1
+            
+    precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+    recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    
+    return {
+        "run_id": run_id,
+        "metrics": {
+            "true_positives": true_positives,
+            "false_positives": false_positives,
+            "false_negatives": false_negatives,
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1_score": round(f1, 4),
+        },
+        "details": matched_details
+    }

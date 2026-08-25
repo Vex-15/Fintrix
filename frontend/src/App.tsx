@@ -24,17 +24,30 @@ export default function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(api.isAuthenticated());
   const [user, setUser] = useState<UserProfile | null>(api.getStoredUser());
+  const [isDemoMode, setIsDemoMode] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Check demo mode
+  useEffect(() => {
+    api.health().then((data) => {
+      if (data.demo_mode) {
+        setIsDemoMode(true);
+        setIsAuthenticated(true);
+        setUser({ id: 1, email: "admin@fintrix.io", name: "Demo Admin", role: "admin" });
+      }
+    }).catch(console.error);
+  }, []);
 
   // Listen for logout events
   useEffect(() => {
     const handleLogout = () => {
+      if (isDemoMode) return; // Don't logout in demo mode
       setIsAuthenticated(false);
       setUser(null);
     };
     window.addEventListener("fintrix:logout", handleLogout);
     return () => window.removeEventListener("fintrix:logout", handleLogout);
-  }, []);
+  }, [isDemoMode]);
 
   // WebSocket connection (replaces SSE)
   const connectWS = useCallback(() => {
@@ -163,17 +176,21 @@ export default function App() {
                   {user.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[11px] text-fintrix-text font-medium truncate">{user.name}</p>
+                  <p className="text-[11px] text-fintrix-text font-medium truncate">
+                    {user.name} {isDemoMode && <span className="text-fintrix-primary ml-1">(Demo)</span>}
+                  </p>
                   <p className="text-[10px] text-fintrix-text-dimmed truncate">{user.email}</p>
                 </div>
               </div>
-              <button
-                onClick={handleLogout}
-                className="text-[10px] text-fintrix-text-dimmed hover:text-red-400 transition-colors cursor-pointer shrink-0"
-                title="Logout"
-              >
-                ⏻
-              </button>
+              {!isDemoMode && (
+                <button
+                  onClick={handleLogout}
+                  className="text-[10px] text-fintrix-text-dimmed hover:text-red-400 transition-colors cursor-pointer shrink-0"
+                  title="Logout"
+                >
+                  ⏻
+                </button>
+              )}
             </div>
           )}
 

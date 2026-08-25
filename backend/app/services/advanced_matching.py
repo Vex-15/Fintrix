@@ -35,6 +35,7 @@ class MatchScore:
     strategy: str
     score: float  # 0.0 to 1.0
     weight: float
+    explanation: str = ""
     details: dict = field(default_factory=dict)
 
     @property
@@ -50,6 +51,7 @@ class EnsembleResult:
     scores: list[MatchScore]
     final_score: float
     match_type: str  # auto_match | suggested | manual_review
+    explanation: str = ""
     details: dict = field(default_factory=dict)
 
 
@@ -92,22 +94,22 @@ def score_utr(settlement: Settlement, bank_stmt: BankStatement) -> MatchScore:
     ref = (bank_stmt.reference or "").strip().upper()
 
     if not utr or not ref:
-        return MatchScore("utr", 0.0, WEIGHTS["utr"], {"reason": "missing UTR or reference"})
+        return MatchScore("utr", 0.0, WEIGHTS["utr"], "Missing UTR or reference.", {"reason": "missing UTR or reference"})
 
     # Exact match
     if utr == ref:
-        return MatchScore("utr", 1.0, WEIGHTS["utr"], {"match": "exact"})
+        return MatchScore("utr", 1.0, WEIGHTS["utr"], "Exact UTR match.", {"match": "exact"})
 
     # One contains the other (partial UTR in longer reference)
     if utr in ref or ref in utr:
         overlap = min(len(utr), len(ref)) / max(len(utr), len(ref))
-        return MatchScore("utr", 0.5 + overlap * 0.3, WEIGHTS["utr"], {"match": "partial", "overlap": overlap})
+        return MatchScore("utr", 0.5 + overlap * 0.3, WEIGHTS["utr"], "Partial UTR match.", {"match": "partial", "overlap": overlap})
 
     # Numeric similarity (strip non-digits and compare)
     utr_digits = re.sub(r'\D', '', utr)
     ref_digits = re.sub(r'\D', '', ref)
     if utr_digits and ref_digits and utr_digits == ref_digits:
-        return MatchScore("utr", 0.85, WEIGHTS["utr"], {"match": "numeric_match"})
+        return MatchScore("utr", 0.85, WEIGHTS["utr"], "Numeric UTR match.", {"match": "numeric_match"})
 
     # Levenshtein-like similarity for short UTRs
     if len(utr) > 4 and len(ref) > 4:
@@ -115,9 +117,9 @@ def score_utr(settlement: Settlement, bank_stmt: BankStatement) -> MatchScore:
         max_len = max(len(utr), len(ref))
         similarity = common / max_len
         if similarity > 0.7:
-            return MatchScore("utr", similarity * 0.6, WEIGHTS["utr"], {"match": "fuzzy", "similarity": similarity})
+            return MatchScore("utr", similarity * 0.6, WEIGHTS["utr"], "Fuzzy UTR match.", {"match": "fuzzy", "similarity": similarity})
 
-    return MatchScore("utr", 0.0, WEIGHTS["utr"], {"match": "none"})
+    return MatchScore("utr", 0.0, WEIGHTS["utr"], "No UTR match.", {"match": "none"})
 
 
 # ---------------------------------------------------------------------------
@@ -133,31 +135,36 @@ def score_amount(settlement: Settlement, bank_stmt: BankStatement) -> MatchScore
     bank_amount = bank_stmt.credit
 
     if setl_amount == 0 or bank_amount == 0:
-        return MatchScore("amount", 0.0, WEIGHTS["amount"], {"reason": "zero amount"})
+        return MatchScore("amount", 0.0, WEIGHTS["amount"], "Zero amount.", {"reason": "zero amount"})
 
     difference = abs(setl_amount - bank_amount)
 
     if difference <= AMOUNT_EXACT_TOLERANCE:
         score = 1.0
         band = "exact"
+        explanation = "Exact amount match."
     elif difference <= AMOUNT_ROUNDING_TOLERANCE:
         score = 0.95
         band = "rounding"
+        explanation = f"Amount matches within rounding tolerance ({difference} paise difference)."
     elif difference <= AMOUNT_MINOR_TOLERANCE:
         score = 0.85
         band = "minor"
+        explanation = f"Amount matches within minor tolerance ({difference} paise difference)."
     elif difference <= AMOUNT_FEE_TOLERANCE:
         # Could be fee difference; score based on relative diff
         relative_diff = difference / max(setl_amount, bank_amount)
         score = max(0.3, 0.7 - relative_diff * 5)
         band = "fee_range"
+        explanation = f"Amount difference ({difference} paise) is within typical fee variation."
     else:
         # Large difference — score inversely proportional
         relative_diff = difference / max(setl_amount, bank_amount)
         score = max(0.0, 0.3 - relative_diff)
         band = "large_diff"
+        explanation = f"Large amount discrepancy of {difference} paise."
 
-    return MatchScore("amount", score, WEIGHTS["amount"], {
+    return MatchScore("amount", score, WEIGHTS["amount"], explanation, {
         "settlement_amount": setl_amount,
         "bank_amount": bank_amount,
         "difference": difference,
@@ -178,24 +185,30 @@ def score_date(settlement: Settlement, bank_stmt: BankStatement) -> MatchScore:
     bank_date = bank_stmt.entry_date
 
     if not setl_date or not bank_date:
-        return MatchScore("date", 0.0, WEIGHTS["date"], {"reason": "missing date"})
+        return MatchScore("date", 0.0, WEIGHTS["date"], "Missing date.", {"reason": "missing date"})
 
     day_diff = abs((bank_date - setl_date).days)
 
     if day_diff == 0:
         score = 1.0
+        explanation = "Same day match."
     elif day_diff == 1:
         score = 0.9  # T+1 is very common for settlements
+        explanation = "T+1 day match."
     elif day_diff == 2:
         score = 0.7
+        explanation = "T+2 days match."
     elif day_diff == 3:
         score = 0.5
+        explanation = "T+3 days match."
     elif day_diff <= DATE_MAX_DAYS:
         score = max(0.1, 0.4 - (day_diff - 3) * 0.1)
+        explanation = f"Matched within {day_diff} days."
     else:
         score = 0.0
+        explanation = f"Date difference of {day_diff} days exceeds threshold."
 
-    return MatchScore("date", score, WEIGHTS["date"], {
+    return MatchScore("date", score, WEIGHTS["date"], explanation, {
         "settlement_date": str(setl_date),
         "bank_date": str(bank_date),
         "day_diff": day_diff,
@@ -217,7 +230,7 @@ def score_category(
     bank description patterns, boost the score.
     """
     if not settlement_transactions:
-        return MatchScore("category", 0.0, WEIGHTS["category"], {"reason": "no transactions"})
+        return MatchScore("category", 0.0, WEIGHTS["category"], "No transactions to determine category.", {"reason": "no transactions"})
 
     # Collect methods used in this settlement
     methods = set()
@@ -256,8 +269,10 @@ def score_category(
     # If multiple methods match, boost score
     if len(matches) >= 2:
         score = min(1.0, score + 0.1)
+        
+    explanation = "Category match found based on keywords." if score > 0 else "No category match found."
 
-    return MatchScore("category", score, WEIGHTS["category"], {
+    return MatchScore("category", score, WEIGHTS["category"], explanation, {
         "methods": list(methods),
         "matches": matches,
     })
@@ -275,7 +290,7 @@ def score_description(settlement: Settlement, bank_stmt: BankStatement) -> Match
     desc = (bank_stmt.description or "").lower()
 
     if not desc:
-        return MatchScore("description", 0.0, WEIGHTS["description"], {"reason": "no description"})
+        return MatchScore("description", 0.0, WEIGHTS["description"], "No description.", {"reason": "no description"})
 
     score = 0.0
     matches = []
@@ -311,7 +326,9 @@ def score_description(settlement: Settlement, bank_stmt: BankStatement) -> Match
             score = max(score, 0.4)
             matches.append(f"pattern:{pattern}")
 
-    return MatchScore("description", score, WEIGHTS["description"], {
+    explanation = "Description pattern matched." if score > 0 else "No description pattern match."
+
+    return MatchScore("description", score, WEIGHTS["description"], explanation, {
         "matches": matches,
     })
 
@@ -346,6 +363,8 @@ def match_settlement_to_bank(
         match_type = "suggested"
     else:
         match_type = "manual_review"
+        
+    aggregate_explanation = " | ".join([f"{s.strategy.upper()}: {s.explanation}" for s in scores])
 
     return EnsembleResult(
         settlement_id=settlement.id,
@@ -353,9 +372,11 @@ def match_settlement_to_bank(
         scores=scores,
         final_score=round(final_score, 4),
         match_type=match_type,
+        explanation=aggregate_explanation,
         details={
             "strategy_scores": {s.strategy: round(s.score, 4) for s in scores},
             "weighted_scores": {s.strategy: round(s.weighted_score, 4) for s in scores},
+            "aggregate_explanation": aggregate_explanation,
         },
     )
 

@@ -1,8 +1,8 @@
 """
 Synthetic data generator for the Fintrix evaluation dataset.
 
-Produces 50+ transaction records with planted discrepancies across these categories:
-  - 30  clean matches  (payment → settlement → bank, everything reconciles)
+Produces exactly 60 transaction records with planted discrepancies across these categories:
+  - 34  clean matches  (payment → settlement → bank, everything reconciles)
   -  4  fee discrepancies  (recorded fee ≠ expected fee)
   -  3  missing settlements  (captured payment, no settlement)
   -  3  amount mismatches  (settlement total ≠ sum of constituents)
@@ -112,15 +112,15 @@ def generate_dataset() -> dict:
         }
 
     # -------------------------------------------------------------------------
-    # SETTLEMENT 1-4: Clean matches (24 payments)
+    # SETTLEMENT 1-5: Clean matches (28 payments)
     # -------------------------------------------------------------------------
     for setl_num in range(1, 5):
         setl_id = f"setl_{setl_num:03d}"
         day = setl_num * 2
         setl_payments = []
 
-        for j in range(6):
-            order_num = (setl_num - 1) * 6 + j + 1
+        for j in range(7):
+            order_num = (setl_num - 1) * 7 + j + 1
             amount = _random_amount(50000, 500000)
             txn = make_payment(order_num, amount, day, 10 + j, setl_id)
             transactions.append(txn)
@@ -154,12 +154,13 @@ def generate_dataset() -> dict:
         ground_truth["expected_matched"] += len(setl_payments)
 
     # -------------------------------------------------------------------------
-    # SETTLEMENT 5: Clean (6 more payments = 30 clean total)
+    # SETTLEMENT 5: Clean (6 more payments = 34 clean total)
     # -------------------------------------------------------------------------
     setl_id = "setl_005"
     day = 10
     setl_payments = []
 
+        # 4 settlements * 7 = 28 payments. Add 6 more to reach 34 clean.
     for j in range(6):
         order_num = 25 + j
         amount = _random_amount(100000, 800000)
