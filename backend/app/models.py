@@ -239,6 +239,8 @@ class Investigation(Base):
     response_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     chain_of_thought: Mapped[dict | None] = mapped_column(JSON)  # Steps: fact_gathering, hypothesis, validation, scoring
+    agent_decision_trace: Mapped[dict | None] = mapped_column(JSON) # Detailed execution log
+    user_feedback: Mapped[str | None] = mapped_column(String) # 'helpful' or 'unhelpful'
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     exception: Mapped["Exception_"] = relationship(back_populates="investigation")

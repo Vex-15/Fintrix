@@ -84,6 +84,43 @@ async def exceptions_summary(
     }
 
 
+@router.get("/clusters")
+async def get_exception_clusters(db: AsyncSession = Depends(get_db)):
+    """
+    Cluster unresolved exceptions by pattern (type or settlement_id).
+    Aggregates financial impact for each cluster.
+    """
+    result = await db.execute(
+        select(Exception_).where(Exception_.status.in_(["detected", "investigating", "escalated"]))
+    )
+    exceptions = result.scalars().all()
+    
+    clusters = {}
+    for exc in exceptions:
+        # Determine a clustering key
+        cluster_key = exc.type
+        if exc.type == "amount_mismatch" and exc.context and "settlement_id" in exc.context:
+            cluster_key = f"amount_mismatch_setl_{exc.context['settlement_id']}"
+            
+        if cluster_key not in clusters:
+            clusters[cluster_key] = {
+                "pattern": cluster_key,
+                "count": 0,
+                "total_impact": 0,
+                "exception_ids": []
+            }
+        
+        clusters[cluster_key]["count"] += 1
+        clusters[cluster_key]["total_impact"] += exc.amount_at_risk
+        clusters[cluster_key]["exception_ids"].append(exc.id)
+        
+    # Sort clusters by total impact descending
+    cluster_list = list(clusters.values())
+    cluster_list.sort(key=lambda x: x["total_impact"], reverse=True)
+    
+    return cluster_list
+
+
 @router.get("/{exception_id}", response_model=ExceptionOut)
 async def get_exception(
     exception_id: int = Path(...),
@@ -237,6 +274,8 @@ async def get_deep_investigation(
             "response_tokens": inv.response_tokens,
             "latency_ms": inv.latency_ms,
             "chain_of_thought": inv.chain_of_thought,
+            "agent_decision_trace": inv.agent_decision_trace,
+            "user_feedback": inv.user_feedback,
             "created_at": inv.created_at.isoformat() if inv.created_at else None,
         }
 
@@ -397,6 +436,32 @@ async def act_on_exception(
         "new_status": exc.status,
         "reason": body.reason,
     }
+
+
+@router.post("/{exception_id}/feedback")
+async def add_feedback(
+    exception_id: int = Path(...),
+    body: dict = ...,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Provide human feedback (helpful/unhelpful) on an AI investigation decision.
+    """
+    feedback = body.get("feedback")
+    if feedback not in ("helpful", "unhelpful"):
+        raise HTTPException(status_code=400, detail="Feedback must be 'helpful' or 'unhelpful'")
+
+    result = await db.execute(
+        select(Investigation).where(Investigation.exception_id == exception_id)
+    )
+    inv = result.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investigation not found for this exception")
+
+    inv.user_feedback = feedback
+    await db.flush()
+
+    return {"status": "success", "feedback": feedback}
 
 
 # ---------------------------------------------------------------------------
