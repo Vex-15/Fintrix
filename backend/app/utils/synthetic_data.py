@@ -388,7 +388,7 @@ def generate_dataset() -> dict:
             "status": "captured",
             "fee": _compute_fee(amount),
             "tax": _compute_tax(_compute_fee(amount)),
-            "settlement_id": "setl_005",  # attach to an existing settlement
+            "settlement_id": None,  # Don't attach to setl_005 as it corrupts the clean settlement
             "method": method,
             "description": f"Order #{order_num:03d} payment",
             "captured_at": _dt(19, 10 + j),
@@ -407,7 +407,7 @@ def generate_dataset() -> dict:
             "status": "captured",
             "fee": _compute_fee(amount),
             "tax": _compute_tax(_compute_fee(amount)),
-            "settlement_id": "setl_005",
+            "settlement_id": None,
             "method": method,                       # SAME method
             "description": f"Order #{order_num:03d} payment (retry)",
             "captured_at": _dt(19, 10 + j, 5),  # 5 min later

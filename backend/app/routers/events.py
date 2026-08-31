@@ -343,6 +343,20 @@ async def run_full_pipeline(
         "duration_ms": run.duration_ms,
     })
 
+    investigation_details = []
+    for inv in investigations:
+         # Need exception details too, let's fetch it or just use basic info
+         exc = await db.get(Exception_, inv.exception_id)
+         investigation_details.append({
+              "exception_id": inv.exception_id,
+              "exception_type": exc.type if exc else "unknown",
+              "exception_context_str": str(exc.context) if exc else "",
+              "amount_at_risk": exc.amount_at_risk if exc else 0,
+              "category": inv.chain_of_thought.get("hypothesis_engine", [{}])[0].get("category", "unknown") if inv.chain_of_thought.get("source") == "rule_based" and inv.chain_of_thought.get("hypothesis_engine") else inv.chain_of_thought.get("llm_chain", {}).get("category", "unknown"), # Fallback category logic
+              "source_path": inv.chain_of_thought.get("source", "unknown"),
+              "resolution_type": inv.resolution_type,
+         })
+
     return {
         "run_id": run.id,
         "reconciliation": {
@@ -360,6 +374,7 @@ async def run_full_pipeline(
             "human_review": human_review,
         },
         "summary": run.summary,
+        "investigations": investigation_details,
     }
 
 

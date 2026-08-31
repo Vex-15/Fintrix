@@ -134,6 +134,9 @@ async def sync_payments(
     Returns sync stats.
     """
     try:
+        if not settings.razorpay_live_demo:
+            return {"error": "Razorpay integration is disabled in demo mode", "fetched": 0, "synced": 0}
+            
         merchant = None
         if merchant_id:
             result = await db.execute(select(Merchant).where(Merchant.id == merchant_id))
@@ -202,6 +205,9 @@ async def sync_settlements(
     Fetch recent settlements from Razorpay and upsert into the database.
     """
     try:
+        if not settings.razorpay_live_demo:
+            return {"error": "Razorpay integration is disabled in demo mode", "fetched": 0, "synced": 0}
+            
         merchant = None
         if merchant_id:
             result = await db.execute(select(Merchant).where(Merchant.id == merchant_id))

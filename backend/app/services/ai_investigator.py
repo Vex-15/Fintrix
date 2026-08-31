@@ -1,17 +1,18 @@
 """
-AI Investigator — LLM-powered exception analysis with 4-step chain.
+AI Investigator — Hybrid rule-based + LLM-powered exception analysis.
 
-Investigation Chain:
-  1. Fact Gathering — Collect all relevant data points with citations
-  2. Hypothesis Generation — Generate 2-3 ranked hypotheses with evidence links
-  3. Evidence Validation — Cross-reference each hypothesis against data
-  4. Confidence Scoring — Final score based on evidence strength
+Investigation Flow:
+  1. Gather related data (transactions, settlements, bank statements)
+  2. Run deterministic hypothesis engine (rule-based)
+  3. If confidence ≥ floor → build Investigation from rules, optionally ask LLM for prose only
+  4. If confidence < floor → call LLM for full investigation (existing 4-step chain)
 
-Only called for exceptions that deterministic rules cannot explain.
+LLM is only used for:
+  - Prose explanation when rules already identified the root cause
+  - Full investigation when no rule fires
+
 Every call is bounded, gated, and audited.
-
-Supports: Google Gemini.
-Graceful degradation: if LLM is unavailable, escalate all exceptions.
+Graceful degradation: if LLM is unavailable, use rule-based results or escalate.
 """
 
 import json
@@ -26,8 +27,19 @@ from sqlalchemy import select
 from app.config import settings
 from app.models import Exception_, Investigation, Transaction, Settlement, BankStatement
 from app.utils.audit import log_audit
+from app.services.hypothesis_engine import generate_hypotheses, Hypothesis
 
-# The system prompt that defines the AI investigator's role and constraints
+# Narrower prose-only prompt for when rules have already identified the cause
+PROSE_PROMPT_TEMPLATE = """You are a financial reconciliation analyst. Given the following root cause and evidence for a payment exception, write a clear 1-2 sentence human-readable explanation suitable for a finance operations dashboard.
+
+Root Cause: {root_cause}
+Category: {category}
+Evidence:
+{evidence}
+
+Respond with ONLY the explanation text, no JSON, no markdown, no extra formatting. Keep it concise and actionable."""
+
+# The full system prompt for LLM-path investigation (unchanged from original)
 SYSTEM_PROMPT = """You are a financial reconciliation investigator for a payment gateway (similar to Razorpay).
 
 You analyze discrepancies between payments, settlements, refunds, fees, taxes, and bank transactions.
@@ -219,9 +231,29 @@ async def _call_gemini(prompt: str) -> dict:
     return json.loads(text)
 
 
+async def _call_gemini_prose(prompt: str) -> str:
+    """Call Gemini for a prose-only explanation. Returns plain text."""
+    import google.generativeai as genai
+
+    genai.configure(api_key=settings.gemini_api_key)
+    model = genai.GenerativeModel("gemini-2.0-flash")
+
+    response = model.generate_content(
+        [
+            {"role": "user", "parts": [{"text": prompt}]},
+        ],
+        generation_config=genai.types.GenerationConfig(
+            temperature=0.3,
+            max_output_tokens=200,
+        ),
+    )
+
+    return response.text.strip()
+
+
 async def _call_llm(prompt: str) -> tuple[dict, str, int, int]:
     """
-    Call the configured LLM provider.
+    Call the configured LLM provider for full investigation.
 
     Returns: (parsed_response, model_name, prompt_tokens, response_tokens)
     """
@@ -231,6 +263,28 @@ async def _call_llm(prompt: str) -> tuple[dict, str, int, int]:
             return result, "gemini-2.0-flash", len(prompt) // 4, 500  # approximate tokens
         except Exception as e:
             raise ConnectionError(f"LLM provider failed: {e}") from e
+
+    raise ConnectionError("No LLM provider available")
+
+
+async def _call_llm_prose(root_cause: str, category: str, evidence: list[str]) -> tuple[str, str, int, int]:
+    """
+    Call LLM for prose explanation only. Much narrower prompt.
+
+    Returns: (explanation_text, model_name, prompt_tokens, response_tokens)
+    """
+    prompt = PROSE_PROMPT_TEMPLATE.format(
+        root_cause=root_cause,
+        category=category,
+        evidence="\n".join(f"- {e}" for e in evidence),
+    )
+
+    if settings.gemini_api_key:
+        try:
+            text = await _call_gemini_prose(prompt)
+            return text, "gemini-2.0-flash", len(prompt) // 4, len(text) // 4
+        except Exception as e:
+            raise ConnectionError(f"LLM prose call failed: {e}") from e
 
     raise ConnectionError("No LLM provider available")
 
@@ -279,17 +333,25 @@ def _validate_llm_response(response: dict) -> dict:
     return validated
 
 
+def _build_template_explanation(hypothesis: Hypothesis) -> str:
+    """Build a template explanation string from a rule-based hypothesis (no LLM)."""
+    evidence_str = "; ".join(hypothesis.evidence[:3])
+    return (
+        f"{hypothesis.root_cause} "
+        f"[Category: {hypothesis.category}, Evidence: {evidence_str}]"
+    )
+
+
 async def investigate_exception(db: AsyncSession, exception_id: int) -> Investigation | None:
     """
-    Investigate a single exception using the LLM with 4-step chain.
+    Investigate a single exception using the hybrid rule-based + LLM approach.
 
-    Implements:
-    - Context assembly
-    - LLM call with chain-of-thought
-    - Response validation
-    - Guardrails (bounded, gated)
-    - Graceful degradation
-    - Full audit trail
+    Flow:
+    1. Run hypothesis engine (deterministic rules)
+    2. If confidence ≥ floor → use rule-based result, optionally get LLM prose
+    3. If confidence < floor → fall back to full LLM investigation
+    4. Apply guardrails (auto-resolve/escalate thresholds)
+    5. Create Investigation record with full audit trail
     """
     # Load exception
     result = await db.execute(
@@ -316,19 +378,81 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
     try:
         # Gather context
         related_data = await _gather_related_data(db, exc)
-        prompt = _build_investigation_prompt(exc, related_data)
 
-        # Call LLM
-        raw_response, model_name, prompt_tokens, response_tokens = await _call_llm(prompt)
+        # ── Step 1: Rule-based hypothesis generation ──────────────────────
+        hypotheses = generate_hypotheses(
+            exception_type=exc.type,
+            exception_context=exc.context or {},
+            related_data=related_data,
+            amount_at_risk=exc.amount_at_risk,
+        )
 
-        # Validate response
-        validated = _validate_llm_response(raw_response)
+        top_hypothesis = hypotheses[0] if hypotheses else None
+        rule_confidence = top_hypothesis.confidence if top_hypothesis else 0.0
+
+        # ── Step 2: Decide path ──────────────────────────────────────────
+        if top_hypothesis and rule_confidence >= settings.hypothesis_confidence_floor:
+            # ── RULE-BASED PATH ──────────────────────────────────────────
+            root_cause = top_hypothesis.root_cause
+            evidence_list = top_hypothesis.evidence
+            confidence = top_hypothesis.confidence
+            recommended_action = top_hypothesis.recommended_action
+            category = top_hypothesis.category
+
+            # Try to get a nicer prose explanation from LLM (optional)
+            explanation = _build_template_explanation(top_hypothesis)
+            model_name = None
+            prompt_tokens = None
+            response_tokens = None
+
+            if settings.gemini_api_key:
+                try:
+                    prose, model_name, prompt_tokens, response_tokens = await _call_llm_prose(
+                        root_cause, category, evidence_list
+                    )
+                    explanation = prose
+                except ConnectionError:
+                    # LLM failed for prose — use template. DO NOT wipe the hypothesis.
+                    model_name = None
+                    prompt_tokens = None
+                    response_tokens = None
+
+            chain_of_thought = {
+                "source": "rule_based",
+                "hypothesis_engine": [h.to_dict() for h in hypotheses],
+                "prose_source": "llm" if model_name else "template",
+            }
+
+            source_path = "rule_based"
+
+        else:
+            # ── LLM PATH (no rule fired with sufficient confidence) ──────
+            prompt = _build_investigation_prompt(exc, related_data)
+            raw_response, model_name, prompt_tokens, response_tokens = await _call_llm(prompt)
+
+            validated = _validate_llm_response(raw_response)
+
+            root_cause = validated["root_cause"]
+            evidence_list = validated["evidence"]
+            confidence = validated["confidence"]
+            recommended_action = validated["recommended_action"]
+            category = validated.get("category", "unknown")
+            explanation = f"{root_cause} (Category: {category})"
+
+            chain_of_thought = {
+                "source": "llm",
+                "llm_chain": validated["chain_of_thought"],
+                "hypothesis_engine": [h.to_dict() for h in hypotheses] if hypotheses else [],
+            }
+
+            source_path = "llm"
+
         latency_ms = int((time.time() - start_time) * 1000)
 
-        # Apply guardrails for auto-resolve decision
+        # ── Step 3: Apply guardrails (unchanged from original) ────────
         can_auto_resolve = (
-            validated["recommended_action"] == "auto_resolve"
-            and validated["confidence"] >= settings.auto_resolve_confidence_threshold
+            recommended_action == "auto_resolve"
+            and confidence >= settings.auto_resolve_confidence_threshold
             and exc.amount_at_risk <= settings.auto_resolve_max_amount_paise
         )
 
@@ -354,18 +478,18 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
         # Create investigation record
         investigation = Investigation(
             exception_id=exception_id,
-            root_cause=validated["root_cause"],
-            evidence={"points": validated["evidence"]},
-            confidence=validated["confidence"],
-            recommended_action=validated["recommended_action"],
-            explanation=f"{validated['root_cause']} (Category: {validated['category']})",
+            root_cause=root_cause,
+            evidence={"points": evidence_list},
+            confidence=confidence,
+            recommended_action=recommended_action,
+            explanation=explanation,
             resolution_type=resolution_type,
             resolved_by=resolved_by,
-            model_used=model_name,
+            model_used=model_name if model_name else "rule_based",
             prompt_tokens=prompt_tokens,
             response_tokens=response_tokens,
             latency_ms=latency_ms,
-            chain_of_thought=validated["chain_of_thought"],
+            chain_of_thought=chain_of_thought,
         )
         db.add(investigation)
         await db.flush()
@@ -376,13 +500,14 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
             actor="ai_investigator",
             new_state={
                 "status": exc.status,
-                "confidence": validated["confidence"],
-                "recommended_action": validated["recommended_action"],
+                "confidence": confidence,
+                "recommended_action": recommended_action,
                 "final_action": final_action,
-                "root_cause": validated["root_cause"],
-                "model": model_name,
+                "root_cause": root_cause,
+                "model": model_name if model_name else "rule_based",
+                "source_path": source_path,
                 "latency_ms": latency_ms,
-                "chain_steps": list(validated["chain_of_thought"].keys()),
+                "chain_steps": list(chain_of_thought.keys()),
                 "guardrails": {
                     "can_auto_resolve": can_auto_resolve,
                     "must_escalate": must_escalate,
@@ -396,27 +521,68 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
         return investigation
 
     except ConnectionError as e:
-        # GRACEFUL DEGRADATION: LLM unavailable → escalate
+        # GRACEFUL DEGRADATION: LLM unavailable
         latency_ms = int((time.time() - start_time) * 1000)
-        exc.status = "escalated"
 
-        error_msg = str(e)
-        investigation = Investigation(
-            exception_id=exception_id,
-            root_cause="AI service unavailable — escalated for manual review",
-            evidence={"points": [f"LLM API connection failed: {error_msg}"]},
-            confidence=0.0,
-            recommended_action="escalate",
-            explanation="AI investigation could not be completed due to LLM service unavailability. "
-                        "Exception has been escalated for manual human review.",
-            resolution_type=None,
-            resolved_by=None,
-            model_used="none (service_unavailable)",
-            prompt_tokens=0,
-            response_tokens=0,
-            latency_ms=latency_ms,
-            chain_of_thought={"error": "LLM service unavailable", "fallback": "escalate_all"},
-        )
+        # Check if we already have a rule-based hypothesis before this error
+        # (This happens when we were in the LLM path because no rule fired)
+        try:
+            related_data_fallback = await _gather_related_data(db, exc)
+            fallback_hypotheses = generate_hypotheses(
+                exception_type=exc.type,
+                exception_context=exc.context or {},
+                related_data=related_data_fallback,
+                amount_at_risk=exc.amount_at_risk,
+            )
+            fallback_top = fallback_hypotheses[0] if fallback_hypotheses else None
+        except Exception:
+            fallback_top = None
+
+        if fallback_top and fallback_top.confidence > 0 and fallback_top.category != "unknown":
+            # We have a rule-based hypothesis — use it even though LLM failed
+            exc.status = "escalated"
+            investigation = Investigation(
+                exception_id=exception_id,
+                root_cause=fallback_top.root_cause,
+                evidence={"points": fallback_top.evidence},
+                confidence=fallback_top.confidence,
+                recommended_action="escalate",  # Always escalate on LLM failure
+                explanation=_build_template_explanation(fallback_top)
+                            + " (LLM unavailable — using rule-based analysis only)",
+                resolution_type=None,
+                resolved_by=None,
+                model_used="rule_based (llm_unavailable)",
+                prompt_tokens=None,
+                response_tokens=None,
+                latency_ms=latency_ms,
+                chain_of_thought={
+                    "source": "rule_based",
+                    "llm_error": str(e),
+                    "hypothesis_engine": [h.to_dict() for h in fallback_hypotheses],
+                },
+            )
+        else:
+            # No rule fired AND LLM is unavailable — genuinely need to escalate
+            exc.status = "escalated"
+            investigation = Investigation(
+                exception_id=exception_id,
+                root_cause="AI service unavailable — escalated for manual review",
+                evidence={"points": [f"LLM API connection failed: {str(e)}"]},
+                confidence=0.0,
+                recommended_action="escalate",
+                explanation="AI investigation could not be completed due to LLM service unavailability. "
+                            "No deterministic rule matched either. "
+                            "Exception has been escalated for manual human review.",
+                resolution_type=None,
+                resolved_by=None,
+                model_used="none (service_unavailable)",
+                prompt_tokens=0,
+                response_tokens=0,
+                latency_ms=latency_ms,
+                chain_of_thought={"source": "fallback", "error": "LLM service unavailable",
+                                  "rule_based_result": "no_match"},
+            )
+
         db.add(investigation)
         await db.flush()
 
@@ -427,6 +593,7 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
             new_state={
                 "status": "escalated",
                 "reason": "llm_unavailable",
+                "had_rule_hypothesis": bool(fallback_top and fallback_top.category != "unknown"),
                 "latency_ms": latency_ms,
             },
         )
@@ -452,7 +619,7 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
             prompt_tokens=0,
             response_tokens=0,
             latency_ms=latency_ms,
-            chain_of_thought={"error": str(e), "fallback": "escalate_all"},
+            chain_of_thought={"source": "error", "error": str(e), "fallback": "escalate_all"},
         )
         db.add(investigation)
         await db.flush()
