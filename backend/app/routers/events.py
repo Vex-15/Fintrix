@@ -12,9 +12,10 @@ import json
 from datetime import datetime
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+from sqlalchemy.orm.attributes import flag_modified
 from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db, async_session
@@ -26,6 +27,7 @@ router = APIRouter()
 
 # In-memory event bus for SSE (simple asyncio.Queue per connection)
 _sse_subscribers: list[asyncio.Queue] = []
+_debounce_task: asyncio.Task | None = None
 
 
 def broadcast_sse(event_type: str, data: dict):
@@ -82,6 +84,9 @@ async def ingest_event(
             new_state={"error": str(e), "attempts": event.attempts},
         )
 
+    # Trigger debounced pipeline
+    _trigger_debounced_pipeline()
+
     await db.flush()
     return event
 
@@ -104,6 +109,67 @@ async def _process_event(db: AsyncSession, event: Event, body: EventIn):
             "event_type": body.event_type,
             "status": "processed",
         })
+
+def _trigger_debounced_pipeline():
+    global _debounce_task
+    if _debounce_task and not _debounce_task.done():
+        _debounce_task.cancel()
+    _debounce_task = asyncio.create_task(_debounced_pipeline_task())
+
+async def _debounced_pipeline_task():
+    try:
+        await asyncio.sleep(4.0)  # 4 second debounce
+        from app.database import async_session
+        from app.services.reconciliation_engine import run_reconciliation
+        from app.services.ai_investigator import investigate_all_exceptions
+        
+        async with async_session() as db:
+            broadcast_sse("pipeline.step", {"step": "reconciliation", "status": "started"})
+            run = await run_reconciliation(db, trigger_type="webhook_debounce")
+            
+            investigations = await investigate_all_exceptions(db, run.id)
+            
+            # Compile results
+            auto_resolved = sum(1 for inv in investigations if inv.resolution_type == "auto")
+            escalated = sum(1 for inv in investigations if inv.resolution_type is None)
+            human_review = sum(
+                1 for inv in investigations
+                if inv.recommended_action == "escalate" and inv.resolution_type is None
+            )
+
+            # Financial metrics
+            exc_result = await db.execute(select(Exception_).where(Exception_.run_id == run.id))
+            exceptions = exc_result.scalars().all()
+            
+            total_exception_amount = sum(e.amount_at_risk for e in exceptions)
+            auto_resolved_amount = sum(e.amount_at_risk for e in exceptions if e.status == "resolved")
+            human_review_amount = sum(e.amount_at_risk for e in exceptions if e.status != "resolved")
+            match_rate = run.matched / run.total_records if run.total_records else 0
+
+            run.summary["financial_impact"] = {
+                "total_exception_amount": total_exception_amount,
+                "auto_resolved_amount": auto_resolved_amount,
+                "human_review_amount": human_review_amount,
+                "match_rate": round(match_rate, 4),
+            }
+            flag_modified(run, "summary")
+            await db.commit()
+
+            broadcast_sse("pipeline.completed", {
+                "run_id": run.id,
+                "total_records": run.total_records,
+                "matched": run.matched,
+                "exceptions": run.exceptions_count,
+                "auto_resolved": auto_resolved,
+                "escalated": escalated,
+                "human_review": human_review,
+                "duration_ms": run.duration_ms,
+            })
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"Error in debounced pipeline: {e}")
+
 
 
 async def _handle_txn_captured(db: AsyncSession, payload: dict, event_id: int):
@@ -331,6 +397,28 @@ async def run_full_pipeline(
         1 for inv in investigations
         if inv.recommended_action == "escalate" and inv.resolution_type is None
     )
+
+    # Fetch exceptions to calculate financial metrics
+    exc_result = await db.execute(
+        select(Exception_).where(Exception_.run_id == run.id)
+    )
+    exceptions = exc_result.scalars().all()
+    
+    total_exception_amount = sum(e.amount_at_risk for e in exceptions)
+    auto_resolved_amount = sum(e.amount_at_risk for e in exceptions if e.status == "resolved")
+    human_review_amount = sum(e.amount_at_risk for e in exceptions if e.status != "resolved")
+    match_rate = run.matched / run.total_records if run.total_records else 0
+
+    run.summary["financial_impact"] = {
+        "total_exception_amount": total_exception_amount,
+        "auto_resolved_amount": auto_resolved_amount,
+        "human_review_amount": human_review_amount,
+        "match_rate": round(match_rate, 4),
+    }
+    # We must mark it as modified for SQLAlchemy's JSON type
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(run, "summary")
+    await db.flush()
 
     broadcast_sse("pipeline.completed", {
         "run_id": run.id,

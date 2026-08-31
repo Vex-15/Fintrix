@@ -319,6 +319,47 @@ function DeepInvestigationDrawer({
                 </div>
               )}
             </div>
+
+            {/* Agent Decision Trace */}
+            {inv.agent_decision_trace && (
+              <div className="mt-4 pt-4 border-t border-fintrix-border-subtle">
+                <p className="text-[11px] text-fintrix-text-muted uppercase tracking-wider mb-2">Agent Decision Trace</p>
+                <div className="bg-fintrix-surface-2/50 rounded-lg p-3 border border-fintrix-border-subtle text-xs font-mono text-fintrix-text-muted max-h-48 overflow-y-auto">
+                  <pre className="whitespace-pre-wrap">{JSON.stringify(inv.agent_decision_trace, null, 2)}</pre>
+                </div>
+              </div>
+            )}
+
+            {/* Human Feedback */}
+            <div className="flex items-center gap-3 pt-2">
+              <span className="text-[11px] text-fintrix-text-muted uppercase tracking-wider">Feedback:</span>
+              <button 
+                onClick={async () => {
+                  try {
+                    await api.addFeedback(exc.id, "helpful");
+                    setData(prev => prev ? { ...prev, investigation: { ...prev.investigation!, user_feedback: "helpful" } } : prev);
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+                className={`px-3 py-1 text-xs border rounded-lg cursor-pointer transition-colors ${inv.user_feedback === "helpful" ? "bg-fintrix-success/20 border-fintrix-success/50 text-fintrix-success" : "border-fintrix-border text-fintrix-text-muted hover:text-fintrix-text hover:bg-fintrix-surface-2"}`}
+              >
+                👍 Helpful
+              </button>
+              <button 
+                onClick={async () => {
+                  try {
+                    await api.addFeedback(exc.id, "unhelpful");
+                    setData(prev => prev ? { ...prev, investigation: { ...prev.investigation!, user_feedback: "unhelpful" } } : prev);
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+                className={`px-3 py-1 text-xs border rounded-lg cursor-pointer transition-colors ${inv.user_feedback === "unhelpful" ? "bg-fintrix-danger/20 border-fintrix-danger/50 text-fintrix-danger" : "border-fintrix-border text-fintrix-text-muted hover:text-fintrix-text hover:bg-fintrix-surface-2"}`}
+              >
+                👎 Unhelpful
+              </button>
+            </div>
           </div>
         )}
 

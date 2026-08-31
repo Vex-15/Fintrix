@@ -190,6 +190,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ exception_ids: exceptionIds, action, reason }),
     }),
+  addFeedback: (id: number, feedback: "helpful" | "unhelpful") =>
+    request(`/exceptions/${id}/feedback`, {
+      method: "POST",
+      body: JSON.stringify({ feedback }),
+    }),
 
   // ── Exception Notes ───────────────────────────────────────────────────
   listNotes: (exceptionId: number) => request<ExceptionNote[]>(`/exceptions/${exceptionId}/notes`),
@@ -511,6 +516,8 @@ export interface DeepInvestigation {
     response_tokens: number | null;
     latency_ms: number | null;
     chain_of_thought: Record<string, unknown> | null;
+    agent_decision_trace?: Record<string, unknown> | null;
+    user_feedback?: string | null;
     created_at: string | null;
   } | null;
   comparison: {

@@ -383,6 +383,56 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
                     old_state={"status": old_status}, new_state={"status": "investigating"})
 
     start_time = time.time()
+    
+    # -------------------------------------------------------------------------
+    # DETERMINISTIC SHORT-CIRCUIT
+    # Skip LLM for exceptions perfectly explained by deterministic rules.
+    # -------------------------------------------------------------------------
+    deterministic_types = ["fee_discrepancy", "rounding_difference", "timing_mismatch"]
+    is_small_mismatch = exc.type == "amount_mismatch" and exc.amount_at_risk <= 5000  # 50 INR
+    
+    if exc.type in deterministic_types or is_small_mismatch:
+        latency_ms = int((time.time() - start_time) * 1000)
+        exc.status = "resolved"
+        exc.resolved_at = datetime.utcnow()
+        
+        root_cause = f"Deterministic resolution for {exc.type}"
+        explanation = f"Exception of type {exc.type} fully explained by deterministic reconciliation rules. No AI investigation required."
+        
+                investigation = Investigation(
+            exception_id=exception_id,
+            root_cause=root_cause,
+            evidence={"points": evidence_list},
+            confidence=confidence,
+            recommended_action=recommended_action,
+            explanation=explanation,
+            resolution_type=resolution_type,
+            resolved_by=resolved_by,
+            model_used=model_name if model_name else "rule_based",
+            prompt_tokens=prompt_tokens,
+            response_tokens=response_tokens,
+            latency_ms=latency_ms,
+            chain_of_thought=chain_of_thought,
+            agent_decision_trace=decision_trace,
+        )
+        db.add(investigation)
+        await db.flush()
+        
+        await log_audit(
+            db, "exception", str(exception_id),
+            action="investigated",
+            actor="deterministic_engine",
+            new_state={
+                "status": "resolved",
+                "confidence": 1.0,
+                "recommended_action": "auto_resolve",
+                "final_action": "auto_resolve",
+                "root_cause": root_cause,
+                "model": "deterministic_engine",
+                "latency_ms": latency_ms,
+            },
+        )
+        return investigation
 
     try:
         # Gather context
@@ -485,6 +535,16 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
             exc.status = "escalated"
 
         # Create investigation record
+        decision_trace = {
+            "model_name": model_name,
+            "raw_chain_of_thought": validated["chain_of_thought"],
+            "guardrails_evaluated": {
+                "can_auto_resolve": can_auto_resolve,
+                "must_escalate": must_escalate,
+            },
+            "final_decision": final_action
+        }
+
         investigation = Investigation(
             exception_id=exception_id,
             root_cause=root_cause,
