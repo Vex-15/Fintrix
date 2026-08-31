@@ -15,6 +15,18 @@ class Settings(BaseSettings):
     auto_resolve_max_amount_paise: int = 1_000_000  # ₹10,000
     always_escalate_amount_paise: int = 10_000_000  # ₹1,00,000
 
+    # Hypothesis Engine
+    hypothesis_confidence_floor: float = 0.6  # Skip LLM if rule-based confidence >= this
+
+    # Financial Configuration
+    expected_mdr_rate: float = 0.02
+    expected_gst_rate: float = 0.18
+    plausible_mdr_rates: list[float] = [0.018, 0.020, 0.022]
+
+    # Feature gates
+    enable_scheduler: bool = False   # Set True to enable cron jobs
+    razorpay_live_demo: bool = False  # Set True to enable live Razorpay API calls
+
     # App
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 

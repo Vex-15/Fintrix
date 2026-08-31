@@ -35,6 +35,9 @@ async def razorpay_webhook(
     body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature", "")
 
+    if not settings.razorpay_live_demo:
+        raise HTTPException(status_code=503, detail="Razorpay integration is disabled in demo mode")
+
     # Determine which secret to use (per-merchant or global)
     webhook_secret = settings.razorpay_webhook_secret
 

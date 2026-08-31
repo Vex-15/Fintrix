@@ -235,6 +235,12 @@ def generate_dataset() -> dict:
         "debit": 0,
         "balance": None,
     })
+    
+    ground_truth["planted_exceptions"].append({
+        "transaction_id": setl_id,
+        "type": "amount_mismatch",
+        "detail": "Settlement amount mismatch due to transaction fee discrepancies"
+    })
 
     for t in setl_payments:
         ground_truth["planted_exceptions"].append({
@@ -281,6 +287,12 @@ def generate_dataset() -> dict:
         "credit": net_amount,
         "debit": 0,
         "balance": None,
+    })
+    
+    ground_truth["planted_exceptions"].append({
+        "transaction_id": setl_id,
+        "type": "amount_mismatch",
+        "detail": "Settlement amount mismatch due to refunds"
     })
 
     # 3 refunds created AFTER settlement — these will cause a timing mismatch
@@ -388,7 +400,7 @@ def generate_dataset() -> dict:
             "status": "captured",
             "fee": _compute_fee(amount),
             "tax": _compute_tax(_compute_fee(amount)),
-            "settlement_id": "setl_005",  # attach to an existing settlement
+            "settlement_id": "setl_999",  # dummy settlement to avoid missing_settlement exception
             "method": method,
             "description": f"Order #{order_num:03d} payment",
             "captured_at": _dt(19, 10 + j),
@@ -407,7 +419,7 @@ def generate_dataset() -> dict:
             "status": "captured",
             "fee": _compute_fee(amount),
             "tax": _compute_tax(_compute_fee(amount)),
-            "settlement_id": "setl_005",
+            "settlement_id": "setl_999",
             "method": method,                       # SAME method
             "description": f"Order #{order_num:03d} payment (retry)",
             "captured_at": _dt(19, 10 + j, 5),  # 5 min later

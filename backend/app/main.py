@@ -11,7 +11,7 @@ from app.config import settings
 from app.database import init_db, close_db, async_session
 from app.routers import (
     ingest, reconciliation, exceptions, audit, events,
-    auth, webhooks, api_keys, export, analytics, websocket,
+    auth, webhooks, api_keys, export, analytics,
 )
 
 
@@ -25,13 +25,15 @@ async def lifespan(app: FastAPI):
     async with async_session() as db:
         await ensure_default_admin(db)
 
-    # Start scheduler
+    # Start scheduler if enabled
     from app.services.scheduler import init_scheduler, stop_scheduler
-    init_scheduler()
+    if settings.enable_scheduler:
+        init_scheduler()
 
     yield
 
-    stop_scheduler()
+    if settings.enable_scheduler:
+        stop_scheduler()
     await close_db()
 
 
@@ -68,9 +70,6 @@ app.include_router(events.router, prefix="/api/events", tags=["Events"])
 # ── Analytics & Export ───────────────────────────────────────────────────────
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(export.router, prefix="/api/export", tags=["Export"])
-
-# ── Real-time ────────────────────────────────────────────────────────────────
-app.include_router(websocket.router, prefix="/api", tags=["WebSocket"])
 
 
 @app.get("/health")

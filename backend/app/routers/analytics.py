@@ -79,6 +79,25 @@ async def get_trends(
         for row in exc_result.all()
     ]
 
+    # Calculate ageing metrics for unresolved exceptions
+    now = datetime.utcnow()
+    ageing = {"0_to_3_days": 0, "4_to_7_days": 0, "8_plus_days": 0}
+    
+    unresolved = await db.execute(
+        select(Exception_.created_at)
+        .where(Exception_.status != "resolved")
+    )
+    for (created_at,) in unresolved.all():
+        if not created_at:
+            continue
+        age_days = (now - created_at).days
+        if age_days <= 3:
+            ageing["0_to_3_days"] += 1
+        elif age_days <= 7:
+            ageing["4_to_7_days"] += 1
+        else:
+            ageing["8_plus_days"] += 1
+
     return {
         "period_days": days,
         "run_trends": run_trends,
@@ -88,7 +107,9 @@ async def get_trends(
             "avg_accuracy": round(sum(r["accuracy"] for r in run_trends) / max(len(run_trends), 1), 4),
             "total_exceptions": sum(r["total"] for r in exception_trends),
             "total_resolved": sum(r["resolved"] for r in exception_trends),
+            "total_funds_at_risk_paise": sum(r["total_risk_paise"] for r in exception_trends),
         },
+        "ageing_metrics": ageing,
     }
 
 

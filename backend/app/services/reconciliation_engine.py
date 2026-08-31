@@ -32,8 +32,6 @@ from app.services.advanced_matching import (
 )
 
 # Fee validation constants
-EXPECTED_MDR_RATE = 0.02
-EXPECTED_GST_RATE = 0.18
 FEE_TOLERANCE_PAISE = 100  # Allow ±₹1 tolerance for rounding
 
 
@@ -201,10 +199,9 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
         results_created.append(result)
 
     # -----------------------------------------------------------------------
-    # STEP 2: Bank Statement Matching (Ensemble Scoring)
-    # Use 5-strategy ensemble matcher for settlement ↔ bank matching.
+    # STEP 2: Ensemble Matching (Bank Statements)
     # -----------------------------------------------------------------------
-    unmatched_settlements = [s for s in settlements if s not in matched_setl_ids or True]
+    unmatched_settlements = settlements
     unmatched_bank_stmts = [b for b in bank_stmts if b.id not in matched_bank_ids]
 
     # Run ensemble matching
@@ -265,6 +262,11 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
             )
             db.add(exc)
             exceptions_created.append(exc)
+            
+            # Remove transactions from matched_txn_ids since settlement is mismatched
+            for t in setl_txns:
+                if t.id in matched_txn_ids:
+                    matched_txn_ids.remove(t.id)
 
         result = ReconciliationResult(
             run_id=run.id,
@@ -312,6 +314,11 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
             exceptions_created.append(exc)
             await log_audit(db, "exception", setl.id, "detected", "system",
                             new_state={"type": "missing_bank_entry", "utr": setl.utr})
+                            
+            # Remove transactions from matched_txn_ids since settlement has no bank entry
+            for t in txns:
+                if t.settlement_id == setl.id and t.id in matched_txn_ids:
+                    matched_txn_ids.remove(t.id)
 
     # -----------------------------------------------------------------------
     # STEP 3: Orphan Detection
@@ -421,8 +428,8 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
         if txn.type != "payment" or txn.status != "captured":
             continue
 
-        expected_fee = round(txn.amount * EXPECTED_MDR_RATE)
-        expected_tax = round(expected_fee * EXPECTED_GST_RATE)
+        expected_fee = round(txn.amount * settings.expected_mdr_rate)
+        expected_tax = round(expected_fee * settings.expected_gst_rate)
         fee_diff = abs(txn.fee - expected_fee)
 
         if fee_diff > FEE_TOLERANCE_PAISE:

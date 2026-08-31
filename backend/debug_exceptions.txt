@@ -1,0 +1,19 @@
+amount_mismatch -  - setl_006
+amount_mismatch -  - setl_007
+amount_mismatch -  - setl_008
+rounding_difference -  - setl_010
+missing_bank_entry -  - setl_009
+missing_settlement - pay_045 - 
+missing_settlement - pay_046 - 
+missing_settlement - pay_047 - 
+unexpected_adjustment - adj_001 - 
+unexpected_adjustment - adj_002 - 
+duplicate_suspected -  - 
+duplicate_suspected -  - 
+fee_discrepancy - pay_035 - 
+fee_discrepancy - pay_036 - 
+fee_discrepancy - pay_037 - 
+fee_discrepancy - pay_038 - 
+timing_mismatch - rfnd_001 - setl_007
+timing_mismatch - rfnd_002 - setl_007
+timing_mismatch - rfnd_003 - setl_007
