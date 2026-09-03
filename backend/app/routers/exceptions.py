@@ -582,3 +582,198 @@ async def add_note(
     )
 
     return note
+
+
+# ---------------------------------------------------------------------------
+# Exception Explainability Endpoint
+# ---------------------------------------------------------------------------
+
+@router.get("/{exception_id}/explain")
+async def explain_exception(
+    exception_id: int = Path(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Full explainability view for an exception's investigation decision.
+
+    Returns:
+    - All rules that were checked and their results
+    - Evidence gathered
+    - Confidence scores at each stage
+    - Reasoning chain (chain_of_thought)
+    - Guardrail evaluations
+    - Final decision and rationale
+    """
+    # Load exception with investigation
+    result = await db.execute(
+        select(Exception_)
+        .options(selectinload(Exception_.investigation))
+        .where(Exception_.id == exception_id)
+    )
+    exc = result.scalar_one_or_none()
+    if not exc:
+        raise HTTPException(status_code=404, detail="Exception not found")
+
+    ctx = exc.context or {}
+    inv = exc.investigation
+
+    # --- Re-run hypothesis engine to show all rules checked ---
+    from app.services.hypothesis_engine import (
+        generate_hypotheses, _EXCEPTION_RULE_MAP, _ALL_RULES,
+        _check_timing_mismatch, _check_fee_change, _check_missing_refund,
+        _check_duplicate_charge, _check_partial_settlement,
+        _check_manual_adjustment, _check_rounding,
+    )
+    from app.services.ai_investigator import _gather_related_data
+
+    related_data = await _gather_related_data(db, exc)
+    discrepancy = abs(exc.amount_at_risk)
+
+    # Map rule functions to human-readable names
+    rule_names = {
+        _check_timing_mismatch: "timing_mismatch",
+        _check_fee_change: "fee_change",
+        _check_missing_refund: "missing_refund",
+        _check_duplicate_charge: "duplicate_charge",
+        _check_partial_settlement: "partial_settlement",
+        _check_manual_adjustment: "manual_adjustment",
+        _check_rounding: "rounding",
+    }
+
+    # Check all rules and record results
+    rules_checked = []
+    targeted_rules = _EXCEPTION_RULE_MAP.get(exc.type, [])
+
+    for rule_fn in _ALL_RULES:
+        rule_name = rule_names.get(rule_fn, str(rule_fn))
+        is_targeted = rule_fn in targeted_rules
+
+        try:
+            hypothesis = rule_fn(exc.type, ctx, related_data, discrepancy)
+            if hypothesis and hypothesis.confidence > 0:
+                rules_checked.append({
+                    "rule": rule_name,
+                    "fired": True,
+                    "targeted": is_targeted,
+                    "confidence": hypothesis.confidence,
+                    "category": hypothesis.category,
+                    "root_cause": hypothesis.root_cause,
+                    "evidence": hypothesis.evidence,
+                    "recommended_action": hypothesis.recommended_action,
+                })
+            else:
+                rules_checked.append({
+                    "rule": rule_name,
+                    "fired": False,
+                    "targeted": is_targeted,
+                    "confidence": 0.0,
+                    "reason": "Rule did not match exception pattern",
+                })
+        except Exception as e:
+            rules_checked.append({
+                "rule": rule_name,
+                "fired": False,
+                "targeted": is_targeted,
+                "confidence": 0.0,
+                "reason": f"Rule evaluation error: {str(e)}",
+            })
+
+    # Sort: fired rules first, then by confidence
+    rules_checked.sort(key=lambda r: (-int(r["fired"]), -r["confidence"]))
+
+    # --- Build explainability response ---
+    explanation = {
+        "exception": {
+            "id": exc.id,
+            "type": exc.type,
+            "severity": exc.severity,
+            "status": exc.status,
+            "amount_at_risk_paise": exc.amount_at_risk,
+            "amount_at_risk_rupees": round(exc.amount_at_risk / 100, 2),
+            "created_at": exc.created_at.isoformat() if exc.created_at else None,
+        },
+        "rules_checked": rules_checked,
+        "rules_summary": {
+            "total_rules": len(rules_checked),
+            "rules_fired": sum(1 for r in rules_checked if r["fired"]),
+            "targeted_rules": sum(1 for r in rules_checked if r["targeted"]),
+            "highest_confidence_rule": max(
+                (r for r in rules_checked if r["fired"]),
+                key=lambda r: r["confidence"],
+                default=None,
+            ),
+        },
+        "evidence": {
+            "related_transactions": len(related_data.get("transactions", [])),
+            "has_settlement": related_data.get("settlement") is not None,
+            "has_bank_statement": related_data.get("bank_statement") is not None,
+            "context_keys": list(ctx.keys()),
+        },
+    }
+
+    if inv:
+        from app.config import settings
+
+        explanation["investigation"] = {
+            "id": inv.id,
+            "source_path": inv.chain_of_thought.get("source", "unknown") if inv.chain_of_thought else "unknown",
+            "model_used": inv.model_used,
+            "confidence": inv.confidence,
+            "root_cause": inv.root_cause,
+            "recommended_action": inv.recommended_action,
+            "explanation_text": inv.explanation,
+            "latency_ms": inv.latency_ms,
+        }
+
+        explanation["reasoning_chain"] = inv.chain_of_thought or {}
+
+        # Guardrail evaluations
+        decision_trace = inv.agent_decision_trace or {}
+        guardrails = decision_trace.get("guardrails_evaluated", {})
+
+        explanation["guardrails"] = {
+            "auto_resolve_confidence_threshold": settings.auto_resolve_confidence_threshold,
+            "auto_resolve_max_amount_paise": settings.auto_resolve_max_amount_paise,
+            "always_escalate_amount_paise": settings.always_escalate_amount_paise,
+            "hypothesis_confidence_floor": settings.hypothesis_confidence_floor,
+            "evaluation_result": {
+                "can_auto_resolve": guardrails.get("can_auto_resolve", False),
+                "must_escalate": guardrails.get("must_escalate", False),
+                "confidence_meets_threshold": inv.confidence >= settings.auto_resolve_confidence_threshold,
+                "amount_within_limit": exc.amount_at_risk <= settings.auto_resolve_max_amount_paise,
+                "amount_triggers_escalation": exc.amount_at_risk >= settings.always_escalate_amount_paise,
+            },
+        }
+
+        explanation["final_decision"] = {
+            "action": decision_trace.get("final_decision", inv.recommended_action),
+            "resolution_type": inv.resolution_type,
+            "resolved_by": inv.resolved_by,
+            "rationale": (
+                "Auto-resolved: high confidence + low amount at risk"
+                if inv.resolution_type == "auto"
+                else "Escalated: amount exceeds escalation threshold"
+                if guardrails.get("must_escalate")
+                else "Escalated: confidence below auto-resolve threshold or high amount"
+                if inv.recommended_action == "escalate"
+                else "Needs additional data for resolution"
+            ),
+        }
+
+        explanation["scores"] = {
+            "investigation_confidence": inv.confidence,
+            "evidence_points": len(inv.evidence.get("points", [])) if isinstance(inv.evidence, dict) else 0,
+            "prompt_tokens": inv.prompt_tokens,
+            "response_tokens": inv.response_tokens,
+        }
+    else:
+        explanation["investigation"] = None
+        explanation["reasoning_chain"] = None
+        explanation["guardrails"] = None
+        explanation["final_decision"] = {
+            "action": "pending",
+            "rationale": "Exception has not been investigated yet.",
+        }
+        explanation["scores"] = None
+
+    return explanation

@@ -198,11 +198,28 @@ export const api = {
 
   // ── Exception Notes ───────────────────────────────────────────────────
   listNotes: (exceptionId: number) => request<ExceptionNote[]>(`/exceptions/${exceptionId}/notes`),
-  addNote: (exceptionId: number, content: string) =>
+  addNote: (exceptionId: number, note: string) =>
     request<ExceptionNote>(`/exceptions/${exceptionId}/notes`, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ note }),
     }),
+
+  // ── Explainability ────────────────────────────────────────────────────
+  getExplainability: (exceptionId: number) => request<any>(`/exceptions/${exceptionId}/explain`),
+
+  // ── Q&A Agent ─────────────────────────────────────────────────────────
+  askQA: (question: string) => 
+    request<any>("/qa/ask", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+
+  // ── New Analytics Features ────────────────────────────────────────────
+  getForecast: (days: number = 14) => request<any>(`/analytics/forecast?days=${days}`),
+  getTaxReconciliation: () => request<any>("/analytics/tax-reconciliation"),
+  getConfidenceCalibration: () => request<any>("/analytics/confidence-calibration"),
+  getThresholdSensitivity: () => request<any>("/analytics/threshold-sensitivity"),
+  runDeterminismTest: () => request<any>("/analytics/determinism-test", { method: "POST" }),
 
   // ── Pipeline ──────────────────────────────────────────────────────────
   runFullPipeline: () => request<PipelineResult>("/events/run-full-pipeline", { method: "POST" }),

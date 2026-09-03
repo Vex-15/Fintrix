@@ -11,7 +11,7 @@ from app.config import settings
 from app.database import init_db, close_db, async_session
 from app.routers import (
     ingest, reconciliation, exceptions, audit, events,
-    auth, webhooks, api_keys, export, analytics,
+    auth, webhooks, api_keys, export, analytics, qa,
 )
 
 
@@ -70,6 +70,9 @@ app.include_router(events.router, prefix="/api/events", tags=["Events"])
 # ── Analytics & Export ───────────────────────────────────────────────────────
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(export.router, prefix="/api/export", tags=["Export"])
+
+# ── Q&A Agent ────────────────────────────────────────────────────────────
+app.include_router(qa.router, prefix="/api/qa", tags=["Q&A Agent"])
 
 
 @app.get("/health")

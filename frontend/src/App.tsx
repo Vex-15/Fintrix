@@ -6,12 +6,14 @@ import PipelineView from "./components/PipelineView";
 import Analytics from "./components/Analytics";
 import Settings from "./components/Settings";
 import Login from "./components/Login";
+import QAAgent from "./components/QAAgent";
 import { api, type UserProfile } from "./api";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: "⬡", desc: "Overview & metrics" },
   { id: "pipeline", label: "Pipeline", icon: "⟐", desc: "Run & monitor" },
   { id: "exceptions", label: "Exceptions", icon: "◈", desc: "Investigate & resolve" },
+  { id: "qa", label: "Q&A Agent", icon: "🤖", desc: "Ask data questions" },
   { id: "analytics", label: "Analytics", icon: "◉", desc: "Trends & ROI" },
   { id: "audit", label: "Audit Trail", icon: "⟟", desc: "Immutable log" },
   { id: "settings", label: "Settings", icon: "⚙", desc: "Config & keys" },
@@ -214,6 +216,7 @@ export default function App() {
           {activeTab === "dashboard" && <Dashboard />}
           {activeTab === "pipeline" && <PipelineView />}
           {activeTab === "exceptions" && <Exceptions />}
+          {activeTab === "qa" && <QAAgent />}
           {activeTab === "analytics" && <Analytics />}
           {activeTab === "audit" && <AuditTrail />}
           {activeTab === "settings" && <Settings user={user} />}

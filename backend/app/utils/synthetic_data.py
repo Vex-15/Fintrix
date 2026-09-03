@@ -61,6 +61,9 @@ def generate_dataset() -> dict:
         bank_statements: list[dict]
         ground_truth: dict  (expected results for evaluation)
     """
+    # Reset seed at the start of every call for deterministic output
+    random.seed(42)
+
     transactions = []
     settlements = []
     bank_statements = []

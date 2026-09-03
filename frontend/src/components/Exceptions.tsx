@@ -201,6 +201,9 @@ function DeepInvestigationDrawer({
 }) {
   const [data, setData] = useState<DeepInvestigation | null>(null);
   const [loading, setLoading] = useState(true);
+  const [explainData, setExplainData] = useState<any>(null);
+  const [loadingExplain, setLoadingExplain] = useState(false);
+  const [showExplain, setShowExplain] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -280,6 +283,25 @@ function DeepInvestigationDrawer({
                   {inv.model_used} · {inv.latency_ms}ms
                 </span>
               )}
+              <button 
+                onClick={async () => {
+                  if (!explainData) {
+                    setLoadingExplain(true);
+                    try {
+                      const ex = await api.getExplainability(exc.id);
+                      setExplainData(ex);
+                    } catch (e) {
+                      console.error(e);
+                    } finally {
+                      setLoadingExplain(false);
+                    }
+                  }
+                  setShowExplain(!showExplain);
+                }}
+                className="ml-2 px-3 py-1 bg-fintrix-primary/10 hover:bg-fintrix-primary/20 text-fintrix-primary border border-fintrix-primary/30 rounded-lg text-xs transition-colors cursor-pointer"
+              >
+                {showExplain ? 'Hide Explanation' : 'Explain Decision ✨'}
+              </button>
             </div>
 
             {/* Root Cause */}
@@ -319,6 +341,83 @@ function DeepInvestigationDrawer({
                 </div>
               )}
             </div>
+
+            {/* Explainability View */}
+            {showExplain && (
+              <div className="mt-4 pt-4 border-t border-fintrix-border-subtle bg-fintrix-surface-2/80 rounded-lg p-4 animate-fadeIn">
+                <h4 className="text-xs font-bold text-fintrix-text uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <span className="text-violet-400">✨</span> Explainability Trace
+                </h4>
+                
+                {loadingExplain ? (
+                  <div className="text-center p-4">
+                    <div className="w-6 h-6 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin mx-auto mb-2" />
+                    <p className="text-xs text-fintrix-text-muted">Analyzing decision trace...</p>
+                  </div>
+                ) : explainData ? (
+                  <div className="space-y-5">
+                    {/* Rules Checked */}
+                    <div>
+                      <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-2">Hypothesis Rules Evaluated</p>
+                      <div className="space-y-2">
+                        {explainData.rules_checked.map((rule: any, i: number) => (
+                          <div key={i} className={`text-xs p-2.5 rounded-lg border flex items-start justify-between ${
+                            rule.fired ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-fintrix-surface border-fintrix-border/50'
+                          }`}>
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                {rule.fired ? <span className="text-emerald-400">✓</span> : <span className="text-fintrix-text-muted">✗</span>}
+                                <span className={`font-mono font-medium ${rule.fired ? 'text-emerald-400' : 'text-fintrix-text-dimmed'}`}>{rule.rule}</span>
+                                {rule.targeted && <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider">Targeted</span>}
+                              </div>
+                              {rule.fired ? (
+                                <p className="text-fintrix-text text-[11px] pl-5">{rule.root_cause}</p>
+                              ) : (
+                                <p className="text-fintrix-text-dimmed text-[10px] pl-5">{rule.reason}</p>
+                              )}
+                            </div>
+                            {rule.fired && (
+                              <div className="text-right shrink-0">
+                                <span className="text-emerald-400 font-bold">{(rule.confidence * 100).toFixed(0)}%</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Guardrails */}
+                    {explainData.guardrails && (
+                      <div>
+                        <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-2">Guardrail Checks</p>
+                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                          <div className={`p-2 rounded border ${explainData.guardrails.evaluation_result.confidence_meets_threshold ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                            <div className="flex justify-between mb-1"><span>Confidence Threshold</span><span>{explainData.guardrails.auto_resolve_confidence_threshold * 100}%</span></div>
+                            <div className="font-mono">{explainData.guardrails.evaluation_result.confidence_meets_threshold ? 'PASS' : 'FAIL (Too Low)'}</div>
+                          </div>
+                          <div className={`p-2 rounded border ${explainData.guardrails.evaluation_result.amount_within_limit ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                            <div className="flex justify-between mb-1"><span>Amount Limit</span><span>{formatINR(explainData.guardrails.auto_resolve_max_amount_paise)}</span></div>
+                            <div className="font-mono">{explainData.guardrails.evaluation_result.amount_within_limit ? 'PASS' : 'FAIL (Too High)'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* LLM Chain of Thought */}
+                    {explainData.reasoning_chain && Object.keys(explainData.reasoning_chain).length > 0 && (
+                      <div>
+                        <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-2">LLM Chain of Thought</p>
+                        <div className="bg-black/40 rounded-lg p-3 border border-fintrix-border/50 text-[10px] font-mono text-fintrix-text-dimmed max-h-48 overflow-y-auto whitespace-pre-wrap">
+                          {JSON.stringify(explainData.reasoning_chain, null, 2)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-red-400">Failed to load explainability data.</p>
+                )}
+              </div>
+            )}
 
             {/* Agent Decision Trace */}
             {inv.agent_decision_trace && (

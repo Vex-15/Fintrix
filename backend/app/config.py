@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     # LLM
     gemini_api_key: Optional[str] = None
+    groq_api_key: Optional[str] = None
 
     # AI Guardrails
     auto_resolve_confidence_threshold: float = 0.85

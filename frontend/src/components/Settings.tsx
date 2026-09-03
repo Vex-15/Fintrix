@@ -15,6 +15,10 @@ export default function Settings({ user }: SettingsProps) {
   const [profileName, setProfileName] = useState(user?.name || "");
   const [profilePassword, setProfilePassword] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
+  
+  // Determinism Test State
+  const [determinismResult, setDeterminismResult] = useState<any>(null);
+  const [runningDeterminism, setRunningDeterminism] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -78,6 +82,7 @@ export default function Settings({ user }: SettingsProps) {
     { id: "scheduler", label: "Scheduler", icon: "⏰" },
     { id: "razorpay", label: "Razorpay", icon: "💳" },
     { id: "export", label: "Export Data", icon: "📤" },
+    { id: "diagnostics", label: "Diagnostics", icon: "🔧" },
   ];
 
   return (
@@ -329,6 +334,94 @@ RAZORPAY_WEBHOOK_SECRET=xxxxx`}
                     <p className="text-xs text-fintrix-text-dimmed mt-0.5">{item.desc}</p>
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Diagnostics */}
+          {activeSection === "diagnostics" && (
+            <div className="glass-card rounded-xl p-6 border border-fintrix-border-subtle space-y-5 animate-fadeIn">
+              <div>
+                <h3 className="text-lg font-semibold text-fintrix-text mb-1">System Diagnostics</h3>
+                <p className="text-sm text-fintrix-text-muted">Run self-checks and system validation tests.</p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-fintrix-surface-2/30 border border-fintrix-border-subtle">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h4 className="text-sm font-medium text-fintrix-text">Pipeline Determinism Test</h4>
+                    <p className="text-xs text-fintrix-text-dimmed mt-1">
+                      Verifies that running the pipeline multiple times produces identical results. 
+                      Ensures reliability of the AI and rules engines.
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setRunningDeterminism(true);
+                      setDeterminismResult(null);
+                      try {
+                        const result = await api.runDeterminismTest();
+                        setDeterminismResult(result);
+                      } catch (err: any) {
+                        setDeterminismResult({ error: err.message });
+                      } finally {
+                        setRunningDeterminism(false);
+                      }
+                    }}
+                    disabled={runningDeterminism}
+                    className="px-4 py-2 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/30 text-sm font-medium transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                  >
+                    {runningDeterminism ? (
+                      <><div className="w-4 h-4 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" /> Running...</>
+                    ) : "Run Test"}
+                  </button>
+                </div>
+
+                {determinismResult && (
+                  <div className={`mt-4 p-4 rounded-lg border ${
+                    determinismResult.error ? 'bg-red-500/10 border-red-500/20' :
+                    determinismResult.passed ? 'bg-emerald-500/10 border-emerald-500/20' : 
+                    'bg-amber-500/10 border-amber-500/20'
+                  }`}>
+                    {determinismResult.error ? (
+                      <p className="text-sm text-red-400">{determinismResult.error}</p>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <span className={determinismResult.passed ? 'text-emerald-400' : 'text-amber-400'}>
+                            {determinismResult.passed ? '✓ Test Passed' : '⚠ Test Failed'}
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="text-xs text-fintrix-text-muted mb-1">Run 1 Output</p>
+                            <div className="bg-black/30 p-2 rounded text-fintrix-text-dimmed font-mono text-[10px]">
+                              {JSON.stringify(determinismResult.results.run_1, null, 2)}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs text-fintrix-text-muted mb-1">Run 2 Output</p>
+                            <div className="bg-black/30 p-2 rounded text-fintrix-text-dimmed font-mono text-[10px]">
+                              {JSON.stringify(determinismResult.results.run_2, null, 2)}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {!determinismResult.passed && determinismResult.diffs && (
+                          <div>
+                            <p className="text-xs text-amber-400/80 uppercase tracking-wider mb-1">Detected Differences</p>
+                            <ul className="list-disc list-inside text-xs text-amber-400">
+                              {determinismResult.diffs.map((diff: string, i: number) => (
+                                <li key={i}>{diff}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

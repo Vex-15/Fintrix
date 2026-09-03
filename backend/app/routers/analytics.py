@@ -256,3 +256,315 @@ async def get_roi_metrics(
         "amount_at_risk_resolved_paise": amount_saved,
         "amount_at_risk_resolved_rupees": round(amount_saved / 100, 2),
     }
+
+
+# ---------------------------------------------------------------------------
+# Forward Cash Forecaster
+# ---------------------------------------------------------------------------
+
+@router.get("/forecast")
+async def get_cash_forecast(
+    days: int = Query(default=14, ge=1, le=30),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Predict expected settlement inflows for the next 7–14 days.
+    Uses historical settlement patterns, day-of-week seasonality,
+    and pending captured-but-unsettled transactions.
+    """
+    from app.services.forecaster import forecast_inflows
+    return await forecast_inflows(db, days_ahead=days)
+
+
+# ---------------------------------------------------------------------------
+# Tax-Line Matcher / GST Reconciliation
+# ---------------------------------------------------------------------------
+
+@router.get("/tax-reconciliation")
+async def get_tax_reconciliation(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Compare expected vs recorded GST/fees per transaction.
+    Generates a full tax reconciliation report with per-transaction
+    and per-method breakdowns.
+    """
+    from app.services.tax_matcher import generate_tax_reconciliation
+    return await generate_tax_reconciliation(db)
+
+
+# ---------------------------------------------------------------------------
+# Confidence Calibration Report
+# ---------------------------------------------------------------------------
+
+@router.get("/confidence-calibration")
+async def get_confidence_calibration(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Show whether confidence predictions are well-calibrated.
+    e.g., do 90% confidence predictions actually resolve correctly ~90% of the time?
+
+    Returns calibration curve data and ECE (Expected Calibration Error).
+    """
+    # Fetch all investigations
+    result = await db.execute(
+        select(Investigation, Exception_)
+        .join(Exception_, Investigation.exception_id == Exception_.id)
+    )
+    rows = result.all()
+
+    if not rows:
+        return {
+            "calibration_curve": [],
+            "ece": 0.0,
+            "total_investigations": 0,
+            "note": "No investigations found to calibrate.",
+        }
+
+    # Define calibration bands
+    bands = [
+        (0.0, 0.2), (0.2, 0.4), (0.4, 0.6),
+        (0.6, 0.8), (0.8, 1.0),
+    ]
+
+    calibration_curve = []
+    total_weighted_error = 0.0
+    total_count = len(rows)
+
+    for low, high in bands:
+        band_items = [
+            (inv, exc) for inv, exc in rows
+            if low <= inv.confidence < high or (high == 1.0 and inv.confidence == 1.0 and low <= inv.confidence)
+        ]
+
+        if not band_items:
+            calibration_curve.append({
+                "confidence_range": f"{low:.1f}-{high:.1f}",
+                "predicted_confidence": round((low + high) / 2, 2),
+                "actual_accuracy": None,
+                "count": 0,
+            })
+            continue
+
+        # Determine "correct" outcomes:
+        # - auto-resolved with no negative feedback = correct
+        # - user_feedback == "helpful" = correct
+        # - user_feedback == "unhelpful" = incorrect
+        # - manually overridden (resolution_type == "manual") = incorrect
+        correct = 0
+        for inv, exc in band_items:
+            if inv.user_feedback == "helpful":
+                correct += 1
+            elif inv.user_feedback == "unhelpful":
+                pass  # incorrect
+            elif inv.resolution_type == "auto" and exc.status == "resolved":
+                correct += 1  # auto-resolved, no negative feedback
+            elif inv.resolution_type == "manual":
+                pass  # overridden — counts as incorrect
+            else:
+                # escalated — we don't know, treat as neutral (exclude)
+                total_count -= 1
+                continue
+
+        count = len(band_items)
+        avg_confidence = sum(inv.confidence for inv, _ in band_items) / count
+        actual_accuracy = correct / count if count > 0 else 0
+
+        calibration_curve.append({
+            "confidence_range": f"{low:.1f}-{high:.1f}",
+            "predicted_confidence": round(avg_confidence, 3),
+            "actual_accuracy": round(actual_accuracy, 3),
+            "count": count,
+            "correct": correct,
+        })
+
+        # ECE contribution
+        total_weighted_error += count * abs(avg_confidence - actual_accuracy)
+
+    ece = round(total_weighted_error / max(total_count, 1), 4)
+
+    return {
+        "calibration_curve": calibration_curve,
+        "ece": ece,
+        "ece_interpretation": (
+            "excellent" if ece < 0.05
+            else "good" if ece < 0.10
+            else "fair" if ece < 0.20
+            else "poor"
+        ),
+        "total_investigations": len(rows),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Threshold Sensitivity View
+# ---------------------------------------------------------------------------
+
+@router.get("/threshold-sensitivity")
+async def get_threshold_sensitivity(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Show the trade-off between auto-resolution rate and error rate
+    at different confidence thresholds.
+
+    Sweeps thresholds from 0.50 to 1.00 in 0.05 increments.
+    """
+    from app.config import settings
+
+    # Fetch all investigations with exception data
+    result = await db.execute(
+        select(Investigation, Exception_)
+        .join(Exception_, Investigation.exception_id == Exception_.id)
+    )
+    rows = result.all()
+
+    if not rows:
+        return {
+            "sensitivity_curve": [],
+            "current_threshold": settings.auto_resolve_confidence_threshold,
+            "total_investigations": 0,
+        }
+
+    # Determine which investigations are "errors"
+    # Error = user said "unhelpful" OR was manually overridden
+    error_ids = set()
+    for inv, exc in rows:
+        if inv.user_feedback == "unhelpful":
+            error_ids.add(inv.id)
+        elif inv.resolution_type == "manual" and inv.recommended_action == "auto_resolve":
+            error_ids.add(inv.id)
+
+    sensitivity_curve = []
+    total = len(rows)
+
+    thresholds = [round(0.50 + i * 0.05, 2) for i in range(11)]  # 0.50 to 1.00
+
+    for threshold in thresholds:
+        # How many would be auto-resolved at this threshold?
+        would_auto = [
+            (inv, exc) for inv, exc in rows
+            if inv.confidence >= threshold
+            and inv.recommended_action == "auto_resolve"
+            and exc.amount_at_risk <= settings.auto_resolve_max_amount_paise
+        ]
+
+        auto_count = len(would_auto)
+        auto_rate = auto_count / total if total > 0 else 0
+
+        # How many of those would be errors?
+        errors_at_threshold = sum(1 for inv, _ in would_auto if inv.id in error_ids)
+        error_rate = errors_at_threshold / max(auto_count, 1) if auto_count > 0 else 0
+
+        escalation_rate = 1.0 - auto_rate
+
+        sensitivity_curve.append({
+            "threshold": threshold,
+            "auto_resolve_count": auto_count,
+            "auto_resolve_rate": round(auto_rate, 4),
+            "estimated_error_count": errors_at_threshold,
+            "estimated_error_rate": round(error_rate, 4),
+            "escalation_rate": round(escalation_rate, 4),
+            "is_current": threshold == settings.auto_resolve_confidence_threshold,
+        })
+
+    return {
+        "sensitivity_curve": sensitivity_curve,
+        "current_threshold": settings.auto_resolve_confidence_threshold,
+        "current_max_amount_paise": settings.auto_resolve_max_amount_paise,
+        "total_investigations": total,
+        "total_known_errors": len(error_ids),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Determinism Test (Runtime Endpoint)
+# ---------------------------------------------------------------------------
+
+@router.post("/determinism-test")
+async def run_determinism_test(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Prove that identical input batches always produce identical reconciliation results.
+    Creates temporary in-memory databases, loads synthetic data, runs reconciliation
+    twice, and compares outputs.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession as AS
+    from app.models import Base, Transaction as Txn, Settlement as Setl, BankStatement as BS
+    from app.utils.synthetic_data import generate_dataset
+    from app.services.reconciliation_engine import run_reconciliation as run_recon
+
+    async def _run_once() -> dict:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        session_maker = async_sessionmaker(engine, class_=AS, expire_on_commit=False)
+        async with session_maker() as session:
+            data = generate_dataset()
+
+            for s in data["settlements"]:
+                session.add(Setl(**s))
+            await session.flush()
+
+            for t in data["transactions"]:
+                session.add(Txn(**{**t, "source": "csv_batch"}))
+            await session.flush()
+
+            for b in data["bank_statements"]:
+                session.add(BS(**b))
+            await session.flush()
+            await session.commit()
+
+            run = await run_recon(session, trigger_type="determinism_test")
+            await session.commit()
+
+            exc_result = await session.execute(
+                select(Exception_).where(Exception_.run_id == run.id)
+            )
+            exceptions = exc_result.scalars().all()
+            exc_details = sorted(
+                [{"type": e.type, "amount": e.amount_at_risk} for e in exceptions],
+                key=lambda x: (x["type"], x["amount"]),
+            )
+
+        await engine.dispose()
+
+        return {
+            "total_records": run.total_records,
+            "matched": run.matched,
+            "mismatched": run.mismatched,
+            "unmatched": run.unmatched,
+            "exceptions_count": run.exceptions_count,
+            "exception_types": run.summary.get("exception_types", {}),
+            "exception_details": exc_details,
+        }
+
+    run1 = await _run_once()
+    run2 = await _run_once()
+
+    diffs = []
+    for key in ["total_records", "matched", "mismatched", "unmatched", "exceptions_count"]:
+        if run1[key] != run2[key]:
+            diffs.append({"field": key, "run1": run1[key], "run2": run2[key]})
+
+    if run1["exception_types"] != run2["exception_types"]:
+        diffs.append({"field": "exception_types", "run1": run1["exception_types"], "run2": run2["exception_types"]})
+
+    if run1["exception_details"] != run2["exception_details"]:
+        diffs.append({"field": "exception_details", "note": "Exception details differ"})
+
+    return {
+        "is_deterministic": len(diffs) == 0,
+        "runs_compared": 2,
+        "run_1": {k: v for k, v in run1.items() if k != "exception_details"},
+        "run_2": {k: v for k, v in run2.items() if k != "exception_details"},
+        "diffs": diffs,
+    }

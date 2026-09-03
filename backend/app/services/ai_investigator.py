@@ -251,12 +251,72 @@ async def _call_gemini_prose(prompt: str) -> str:
     return response.text.strip()
 
 
+async def _call_groq(prompt: str) -> dict:
+    """Call Groq API for full investigation. Returns parsed JSON response."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.groq_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.2,
+                "max_tokens": 2048,
+                "response_format": {"type": "json_object"},
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        text = data["choices"][0]["message"]["content"].strip()
+        usage = data.get("usage", {})
+        return json.loads(text), usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
+
+
+async def _call_groq_prose(prompt: str) -> str:
+    """Call Groq API for prose-only explanation. Returns plain text."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.groq_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.1-8b-instant",
+                "messages": [
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.3,
+                "max_tokens": 200,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"].strip()
+
+
 async def _call_llm(prompt: str) -> tuple[dict, str, int, int]:
     """
     Call the configured LLM provider for full investigation.
 
     Returns: (parsed_response, model_name, prompt_tokens, response_tokens)
     """
+    # Try Groq first (preferred)
+    if settings.groq_api_key:
+        try:
+            result, p_tokens, r_tokens = await _call_groq(prompt)
+            return result, "llama-3.3-70b-versatile", p_tokens, r_tokens
+        except Exception as e:
+            # Fall through to Gemini if available
+            if not settings.gemini_api_key:
+                raise ConnectionError(f"Groq API failed: {e}") from e
+
     if settings.gemini_api_key:
         try:
             result = await _call_gemini(prompt)
@@ -264,7 +324,7 @@ async def _call_llm(prompt: str) -> tuple[dict, str, int, int]:
         except Exception as e:
             raise ConnectionError(f"LLM provider failed: {e}") from e
 
-    raise ConnectionError("No LLM provider available")
+    raise ConnectionError("No LLM provider available (set GROQ_API_KEY or GEMINI_API_KEY)")
 
 
 async def _call_llm_prose(root_cause: str, category: str, evidence: list[str]) -> tuple[str, str, int, int]:
@@ -279,6 +339,15 @@ async def _call_llm_prose(root_cause: str, category: str, evidence: list[str]) -
         evidence="\n".join(f"- {e}" for e in evidence),
     )
 
+    # Try Groq first
+    if settings.groq_api_key:
+        try:
+            text = await _call_groq_prose(prompt)
+            return text, "llama-3.1-8b-instant", len(prompt) // 4, len(text) // 4
+        except Exception as e:
+            if not settings.gemini_api_key:
+                raise ConnectionError(f"Groq prose call failed: {e}") from e
+
     if settings.gemini_api_key:
         try:
             text = await _call_gemini_prose(prompt)
@@ -286,7 +355,7 @@ async def _call_llm_prose(root_cause: str, category: str, evidence: list[str]) -
         except Exception as e:
             raise ConnectionError(f"LLM prose call failed: {e}") from e
 
-    raise ConnectionError("No LLM provider available")
+    raise ConnectionError("No LLM provider available (set GROQ_API_KEY or GEMINI_API_KEY)")
 
 
 def _validate_llm_response(response: dict) -> dict:
@@ -398,8 +467,30 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
         
         root_cause = f"Deterministic resolution for {exc.type}"
         explanation = f"Exception of type {exc.type} fully explained by deterministic reconciliation rules. No AI investigation required."
-        
-                investigation = Investigation(
+
+        evidence_list = [f"Exception type '{exc.type}' matches deterministic resolution rule"]
+        if is_small_mismatch:
+            evidence_list.append(f"Amount at risk ({exc.amount_at_risk} paise) is within auto-resolve threshold")
+        confidence = 1.0
+        recommended_action = "auto_resolve"
+        resolution_type = "auto"
+        resolved_by = "system"
+        chain_of_thought = {
+            "source": "deterministic_short_circuit",
+            "matched_type": exc.type,
+            "is_small_mismatch": is_small_mismatch,
+        }
+        decision_trace = {
+            "model_name": None,
+            "path": "deterministic_short_circuit",
+            "guardrails_evaluated": {
+                "can_auto_resolve": True,
+                "must_escalate": False,
+            },
+            "final_decision": "auto_resolve",
+        }
+
+        investigation = Investigation(
             exception_id=exception_id,
             root_cause=root_cause,
             evidence={"points": evidence_list},
@@ -408,16 +499,16 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
             explanation=explanation,
             resolution_type=resolution_type,
             resolved_by=resolved_by,
-            model_used=model_name if model_name else "rule_based",
-            prompt_tokens=prompt_tokens,
-            response_tokens=response_tokens,
+            model_used="deterministic_engine",
+            prompt_tokens=None,
+            response_tokens=None,
             latency_ms=latency_ms,
             chain_of_thought=chain_of_thought,
             agent_decision_trace=decision_trace,
         )
         db.add(investigation)
         await db.flush()
-        
+
         await log_audit(
             db, "exception", str(exception_id),
             action="investigated",
@@ -464,7 +555,7 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
             prompt_tokens = None
             response_tokens = None
 
-            if settings.gemini_api_key:
+            if settings.groq_api_key or settings.gemini_api_key:
                 try:
                     prose, model_name, prompt_tokens, response_tokens = await _call_llm_prose(
                         root_cause, category, evidence_list
@@ -537,7 +628,7 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
         # Create investigation record
         decision_trace = {
             "model_name": model_name,
-            "raw_chain_of_thought": validated["chain_of_thought"],
+            "raw_chain_of_thought": chain_of_thought,
             "guardrails_evaluated": {
                 "can_auto_resolve": can_auto_resolve,
                 "must_escalate": must_escalate,
@@ -559,6 +650,7 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
             response_tokens=response_tokens,
             latency_ms=latency_ms,
             chain_of_thought=chain_of_thought,
+            agent_decision_trace=decision_trace,
         )
         db.add(investigation)
         await db.flush()
