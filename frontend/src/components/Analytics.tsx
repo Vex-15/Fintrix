@@ -1,5 +1,20 @@
 import { useState, useEffect } from "react";
 import { api, type TrendData, type SLAData, type ROIData } from "../api";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  ComposedChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+} from "recharts";
+import { chartColors, ChartTooltip, axisTickStyle } from "./theme";
 
 export default function Analytics() {
   const [trends, setTrends] = useState<TrendData | null>(null);
@@ -52,7 +67,6 @@ export default function Analytics() {
   };
 
   const fmt = (n: number) => n.toLocaleString("en-IN");
-  const fmtR = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
   const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
   if (loading) {
@@ -194,24 +208,33 @@ export default function Analytics() {
               <span className="text-emerald-400">📈</span> Accuracy Trend
             </h3>
             {trends.run_trends.length > 0 ? (
-              <div className="space-y-2">
-                {trends.run_trends.slice(-10).map((r) => (
-                  <div key={r.run_id} className="flex items-center gap-3">
-                    <span className="text-[10px] text-fintrix-text-dimmed font-mono w-20 shrink-0">
-                      {r.date?.split("T")[0] ?? "—"}
-                    </span>
-                    <div className="flex-1 h-4 bg-fintrix-surface-2/50 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-                        style={{ width: `${r.accuracy * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-xs font-mono text-emerald-400 w-12 text-right">
-                      {fmtPct(r.accuracy)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={trends.run_trends.slice(-10).map((r) => ({
+                  date: r.date?.split("T")[0]?.slice(5) ?? "—",
+                  accuracy: +(r.accuracy * 100).toFixed(1),
+                }))}>
+                  <defs>
+                    <linearGradient id="gradSuccess" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={chartColors.success} stopOpacity={0.45} />
+                      <stop offset="100%" stopColor={chartColors.success} stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="date" tick={axisTickStyle} axisLine={{ stroke: chartColors.grid }} tickLine={false} />
+                  <YAxis domain={[0, 100]} tick={axisTickStyle} axisLine={false} tickLine={false} width={32} unit="%" />
+                  <Tooltip content={<ChartTooltip formatter={(v) => [`${v}%`, "Accuracy"]} />} />
+                  <Area
+                    type="monotone"
+                    dataKey="accuracy"
+                    stroke={chartColors.success}
+                    strokeWidth={2}
+                    fill="url(#gradSuccess)"
+                    dot={{ r: 3, fill: chartColors.success, strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                    animationDuration={600}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             ) : (
               <p className="text-sm text-fintrix-text-dimmed">No runs yet. Run the pipeline to see trends.</p>
             )}
@@ -229,33 +252,22 @@ export default function Analytics() {
               <span className="text-red-400">📊</span> Exception Volume
             </h3>
             {trends.exception_trends.length > 0 ? (
-              <div className="space-y-2">
-                {trends.exception_trends.slice(-10).map((e) => {
-                  const maxTotal = Math.max(...trends.exception_trends.map((t) => t.total), 1);
-                  return (
-                    <div key={e.date} className="flex items-center gap-3">
-                      <span className="text-[10px] text-fintrix-text-dimmed font-mono w-20 shrink-0">
-                        {e.date}
-                      </span>
-                      <div className="flex-1 h-4 bg-fintrix-surface-2/50 rounded-full overflow-hidden flex">
-                        <div
-                          className="h-full bg-emerald-500/80 transition-all"
-                          style={{ width: `${(e.resolved / maxTotal) * 100}%` }}
-                        />
-                        <div
-                          className="h-full bg-amber-500/80 transition-all"
-                          style={{ width: `${(e.escalated / maxTotal) * 100}%` }}
-                        />
-                        <div
-                          className="h-full bg-red-500/80 transition-all"
-                          style={{ width: `${((e.total - e.resolved - e.escalated) / maxTotal) * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-mono text-fintrix-text-muted w-8 text-right">{e.total}</span>
-                    </div>
-                  );
-                })}
-              </div>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={trends.exception_trends.slice(-10).map((e) => ({
+                  date: e.date?.slice(5) ?? e.date,
+                  Resolved: e.resolved,
+                  Escalated: e.escalated,
+                  Pending: e.total - e.resolved - e.escalated,
+                }))} barCategoryGap={6}>
+                  <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="date" tick={axisTickStyle} axisLine={{ stroke: chartColors.grid }} tickLine={false} />
+                  <YAxis tick={axisTickStyle} axisLine={false} tickLine={false} width={24} allowDecimals={false} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+                  <Bar dataKey="Resolved" stackId="s" fill={chartColors.success} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Escalated" stackId="s" fill={chartColors.warning} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Pending" stackId="s" fill={chartColors.danger} radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             ) : (
               <p className="text-sm text-fintrix-text-dimmed">No exception data yet.</p>
             )}
@@ -320,28 +332,26 @@ export default function Analytics() {
             </div>
           </div>
           
-          <div className="h-40 flex items-end gap-2 border-b border-fintrix-border-subtle pb-2">
-            {forecast.daily_forecasts.map((d: any) => {
-              const maxAmt = Math.max(...forecast.daily_forecasts.map((df: any) => df.projected_rupees));
-              const heightPct = Math.max((d.projected_rupees / maxAmt) * 100, 5);
-              return (
-                <div key={d.date} className="flex-1 flex flex-col items-center gap-2 group relative">
-                  <div 
-                    className="w-full bg-blue-500/80 rounded-t-sm hover:bg-blue-400 transition-colors"
-                    style={{ height: `${heightPct}%` }}
-                  />
-                  <div className="text-[9px] text-fintrix-text-dimmed -rotate-45 origin-top-left absolute -bottom-8">
-                    {d.date.split('-').slice(1).join('/')}
-                  </div>
-                  {/* Tooltip */}
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black/80 px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-                    ₹{fmt(d.projected_rupees)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="h-8"></div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={forecast.daily_forecasts.map((d: any) => ({
+              date: d.date.split("-").slice(1).join("/"),
+              projected: d.projected_rupees,
+            }))}>
+              <defs>
+                <linearGradient id="gradForecast" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={chartColors.primaryLight} />
+                  <stop offset="100%" stopColor={chartColors.primary} stopOpacity={0.5} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="date" tick={axisTickStyle} axisLine={{ stroke: chartColors.grid }} tickLine={false} />
+              <YAxis tick={axisTickStyle} axisLine={false} tickLine={false} width={44}
+                tickFormatter={(v: any) => v >= 1000 ? `₹${(v / 1000).toFixed(0)}K` : `₹${v}`} />
+              <Tooltip content={<ChartTooltip formatter={(v) => [`₹${fmt(v)}`, "Projected"]} />}
+                cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+              <Bar dataKey="projected" fill="url(#gradForecast)" radius={[4, 4, 0, 0]} animationDuration={600} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
 
@@ -434,45 +444,40 @@ export default function Analytics() {
               </div>
             </div>
 
-            <div className="h-48 flex items-end gap-3 border-b border-l border-fintrix-border-subtle pl-2 pb-2 relative">
-              <div className="absolute left-0 bottom-0 top-0 -ml-8 flex flex-col justify-between text-[10px] text-fintrix-text-dimmed py-2">
-                <span>100%</span>
-                <span>50%</span>
-                <span>0%</span>
-              </div>
-              
-              {calibration.calibration_curve.map((band: any, i: number) => {
-                if (band.count === 0) return <div key={i} className="flex-1" />;
-                const predictedPct = band.predicted_confidence * 100;
-                const actualPct = band.actual_accuracy * 100;
-                
-                return (
-                  <div key={band.confidence_range} className="flex-1 flex justify-center items-end relative group h-full">
-                    {/* Perfect Calibration Line */}
-                    <div className="absolute w-full border-t border-dashed border-white/20 z-0" style={{ bottom: `${predictedPct}%` }} />
-                    
-                    {/* Actual Accuracy Bar */}
-                    <div 
-                      className="w-4/5 bg-violet-500/80 rounded-t-sm z-10 transition-all hover:bg-violet-400"
-                      style={{ height: `${actualPct}%` }}
-                    />
-                    
-                    {/* Tooltip */}
-                    <div className="absolute -top-10 bg-black/90 p-2 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none w-32 left-1/2 -translate-x-1/2 text-center">
-                      <p>Pred: {predictedPct.toFixed(1)}%</p>
-                      <p>Actual: {actualPct.toFixed(1)}%</p>
-                      <p className="text-fintrix-text-dimmed text-[10px]">n={band.count}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex justify-between px-2 mt-2 text-[10px] text-fintrix-text-dimmed">
-              {calibration.calibration_curve.map((b: any) => (
-                <span key={b.confidence_range} className="flex-1 text-center">{b.confidence_range}</span>
-              ))}
-            </div>
-            <p className="text-center text-xs text-fintrix-text-muted mt-2">Predicted Confidence Range</p>
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart
+                data={calibration.calibration_curve
+                  .filter((b: any) => b.count > 0)
+                  .map((b: any) => ({
+                    range: b.confidence_range,
+                    predicted: +(b.predicted_confidence * 100).toFixed(1),
+                    actual: +(b.actual_accuracy * 100).toFixed(1),
+                    n: b.count,
+                  }))}
+              >
+                <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="range" tick={axisTickStyle} axisLine={{ stroke: chartColors.grid }} tickLine={false} />
+                <YAxis domain={[0, 100]} tick={axisTickStyle} axisLine={false} tickLine={false} width={32} unit="%" />
+                <Tooltip
+                  content={<ChartTooltip formatter={(v, n) => [`${v}%`, n === "actual" ? "Actual accuracy" : "Predicted"]} />}
+                  cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                />
+                {/* Perfect-calibration reference: actual should track predicted exactly */}
+                <Line
+                  type="monotone"
+                  dataKey="predicted"
+                  stroke="rgba(255,255,255,0.35)"
+                  strokeDasharray="4 4"
+                  strokeWidth={1.5}
+                  dot={false}
+                  name="Ideal (predicted)"
+                />
+                <Bar dataKey="actual" fill={chartColors.ai} radius={[3, 3, 0, 0]} name="actual" animationDuration={600} />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <p className="text-center text-xs text-fintrix-text-muted mt-2">
+              Purple bars = actual accuracy · dashed line = perfect calibration (predicted = actual)
+            </p>
           </div>
         )}
 
@@ -502,6 +507,30 @@ export default function Analytics() {
                 <span>0.50 (Aggressive)</span>
                 <span>1.00 (Conservative)</span>
               </div>
+            </div>
+
+            {/* Full tradeoff curve — auto-resolve rate vs. estimated error rate across all
+                thresholds, with the current slider position marked. Makes the guardrail
+                tradeoff visible at a glance instead of only showing one point at a time. */}
+            <ResponsiveContainer width="100%" height={140}>
+              <ComposedChart data={sensitivity.sensitivity_curve.map((s: any) => ({
+                threshold: s.threshold.toFixed(2),
+                thresholdVal: s.threshold,
+                autoResolve: +(s.auto_resolve_rate * 100).toFixed(1),
+                errorRate: +(s.estimated_error_rate * 100).toFixed(1),
+              }))}>
+                <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="threshold" tick={axisTickStyle} axisLine={{ stroke: chartColors.grid }} tickLine={false} />
+                <YAxis tick={axisTickStyle} axisLine={false} tickLine={false} width={30} unit="%" />
+                <Tooltip content={<ChartTooltip formatter={(v, n) => [`${v}%`, n === "autoResolve" ? "Auto-resolve rate" : "Est. error rate"]} />} />
+                <Line type="monotone" dataKey="autoResolve" stroke={chartColors.success} strokeWidth={2} dot={false} name="autoResolve" />
+                <Line type="monotone" dataKey="errorRate" stroke={chartColors.danger} strokeWidth={2} dot={false} name="errorRate" />
+                <ReferenceLine x={sliderThreshold.toFixed(2)} stroke={chartColors.textMuted} strokeDasharray="3 3" />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <div className="flex gap-4 text-[10px] text-fintrix-text-dimmed mt-1 mb-4 justify-center">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Auto-resolve rate</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> Estimated error rate</span>
             </div>
 
             {/* Selected Data */}
