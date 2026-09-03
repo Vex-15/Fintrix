@@ -40,17 +40,17 @@ export default function Login({ onLogin }: LoginProps) {
   return (
     <div className="min-h-screen bg-fintrix-bg flex items-center justify-center bg-grid-pattern p-4">
       {/* Ambient glow */}
-      <div className="fixed top-1/4 left-1/4 w-96 h-96 bg-fintrix-primary/5 rounded-full blur-[120px] pointer-events-none" />
-      <div className="fixed bottom-1/4 right-1/4 w-96 h-96 bg-fintrix-accent/5 rounded-full blur-[120px] pointer-events-none" />
+      <div className="fixed top-1/4 left-1/3 w-[500px] h-[500px] bg-fintrix-primary/4 rounded-full blur-[140px] pointer-events-none" />
+      <div className="fixed bottom-1/4 right-1/3 w-[400px] h-[400px] bg-fintrix-accent/3 rounded-full blur-[140px] pointer-events-none" />
 
       <div className="relative w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-fintrix-primary to-fintrix-accent text-white text-2xl font-black shadow-2xl shadow-fintrix-primary/30 mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-fintrix-primary to-fintrix-accent text-white text-2xl font-black shadow-2xl shadow-fintrix-primary/30 mb-5 animate-logo-glow">
             F
           </div>
-          <h1 className="text-3xl font-bold gradient-text">Fintrix</h1>
-          <p className="text-fintrix-text-muted text-sm mt-1 tracking-widest uppercase">
+          <h1 className="text-3xl font-bold gradient-text tracking-tight">Fintrix</h1>
+          <p className="text-fintrix-text-muted text-sm mt-1.5 tracking-widest uppercase font-medium">
             AI Finance Controller
           </p>
         </div>
@@ -92,7 +92,7 @@ export default function Login({ onLogin }: LoginProps) {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Your name"
-                  className="w-full px-4 py-3 rounded-xl bg-fintrix-surface-2/70 border border-fintrix-border-subtle text-fintrix-text placeholder-fintrix-text-dimmed focus:outline-none focus:border-fintrix-primary/50 focus:ring-1 focus:ring-fintrix-primary/20 transition-all text-sm"
+                  className="w-full px-4 py-3 rounded-xl bg-fintrix-surface-2/70 border border-fintrix-border-subtle text-fintrix-text placeholder-fintrix-text-dimmed text-sm input-glow"
                 />
               </div>
             )}
@@ -107,7 +107,7 @@ export default function Login({ onLogin }: LoginProps) {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 required
-                className="w-full px-4 py-3 rounded-xl bg-fintrix-surface-2/70 border border-fintrix-border-subtle text-fintrix-text placeholder-fintrix-text-dimmed focus:outline-none focus:border-fintrix-primary/50 focus:ring-1 focus:ring-fintrix-primary/20 transition-all text-sm"
+                className="w-full px-4 py-3 rounded-xl bg-fintrix-surface-2/70 border border-fintrix-border-subtle text-fintrix-text placeholder-fintrix-text-dimmed text-sm input-glow"
               />
             </div>
 
@@ -122,7 +122,7 @@ export default function Login({ onLogin }: LoginProps) {
                 placeholder="••••••••"
                 required
                 minLength={6}
-                className="w-full px-4 py-3 rounded-xl bg-fintrix-surface-2/70 border border-fintrix-border-subtle text-fintrix-text placeholder-fintrix-text-dimmed focus:outline-none focus:border-fintrix-primary/50 focus:ring-1 focus:ring-fintrix-primary/20 transition-all text-sm"
+                className="w-full px-4 py-3 rounded-xl bg-fintrix-surface-2/70 border border-fintrix-border-subtle text-fintrix-text placeholder-fintrix-text-dimmed text-sm input-glow"
               />
             </div>
 
@@ -135,7 +135,7 @@ export default function Login({ onLogin }: LoginProps) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-fintrix-primary to-fintrix-accent text-white font-medium text-sm transition-all hover:shadow-lg hover:shadow-fintrix-primary/25 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-fintrix-primary to-fintrix-accent text-white font-medium text-sm transition-all hover:shadow-lg hover:shadow-fintrix-primary/25 active:shadow-md disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {loading ? (
                 <span className="inline-flex items-center gap-2">

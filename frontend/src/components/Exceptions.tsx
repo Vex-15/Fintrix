@@ -165,7 +165,7 @@ function InvestigationTimeline({ timeline }: { timeline: DeepInvestigation["time
   return (
     <div className="relative">
       <div className="timeline-line" />
-      {timeline.map((entry, i) => (
+      {timeline.map((entry) => (
         <div key={entry.id} className={`timeline-node ${actorClasses[entry.actor] || "timeline-node-system"}`}>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[11px] font-medium">{actorLabels[entry.actor] || entry.actor}</span>
@@ -276,7 +276,7 @@ function DeepInvestigationDrawer({
         {inv && (
           <div className="border border-fintrix-primary/20 rounded-xl p-5 bg-fintrix-primary/5 space-y-4">
             <div className="flex items-center gap-2">
-              <span className="text-lg">🧠</span>
+              <span className="material-symbols-outlined text-fintrix-primary" style={{ fontSize: "20px" }}>psychology</span>
               <h4 className="text-sm font-bold text-fintrix-primary">AI Investigation Report</h4>
               {inv.model_used && (
                 <span className="text-[10px] text-fintrix-text-muted ml-auto font-mono bg-fintrix-surface-2/50 px-2 py-0.5 rounded">
@@ -346,7 +346,7 @@ function DeepInvestigationDrawer({
             {showExplain && (
               <div className="mt-4 pt-4 border-t border-fintrix-border-subtle bg-fintrix-surface-2/80 rounded-lg p-4 animate-fadeIn">
                 <h4 className="text-xs font-bold text-fintrix-text uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <span className="text-violet-400">✨</span> Explainability Trace
+                  <span className="text-violet-400 material-symbols-outlined icon-sm">auto_awesome</span> Explainability Trace
                 </h4>
                 
                 {loadingExplain ? (
@@ -685,7 +685,7 @@ export default function Exceptions() {
             </div>
           ) : exceptions.length === 0 ? (
             <div className="glass-card p-12 text-center">
-              <div className="text-3xl mb-3 opacity-30">◈</div>
+              <span className="material-symbols-outlined text-fintrix-text-dimmed block" style={{ fontSize: "40px", opacity: 0.25 }}>search_off</span>
               <p className="text-sm text-fintrix-text-muted">No exceptions found. Run the pipeline first.</p>
             </div>
           ) : (
@@ -738,7 +738,7 @@ export default function Exceptions() {
                       </span>
                       {exc.investigation && (
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] text-fintrix-primary">🧠</span>
+                          <span className="text-[10px] text-fintrix-primary material-symbols-outlined" style={{ fontSize: "14px" }}>psychology</span>
                           <span className="text-xs text-fintrix-primary font-mono">
                             {Math.round(exc.investigation.confidence * 100)}%
                           </span>
@@ -762,7 +762,7 @@ export default function Exceptions() {
             />
           ) : (
             <div className="glass-card p-16 text-center">
-              <div className="text-4xl mb-4 opacity-20">🔍</div>
+              <span className="material-symbols-outlined text-fintrix-text-dimmed block mb-3" style={{ fontSize: "40px", opacity: 0.2 }}>search</span>
               <h3 className="text-sm font-semibold text-fintrix-text-muted mb-1">Select an Exception</h3>
               <p className="text-xs text-fintrix-text-dimmed">
                 Click an exception to view deep investigation details

@@ -25,14 +25,14 @@ function formatTimestamp(ts: string): string {
 // ── Actor Badge ──────────────────────────────────────────────────────────────
 function ActorBadge({ actor }: { actor: string }) {
   const config: Record<string, { bg: string; icon: string; label: string }> = {
-    system: { bg: "bg-slate-500/12 text-slate-400 border-slate-500/25", icon: "⚙️", label: "System" },
-    ai_investigator: { bg: "bg-purple-500/12 text-purple-400 border-purple-500/25", icon: "🤖", label: "AI" },
-    human: { bg: "bg-blue-500/12 text-blue-400 border-blue-500/25", icon: "👤", label: "Human" },
+    system: { bg: "bg-slate-500/12 text-slate-400 border-slate-500/25", icon: "settings", label: "System" },
+    ai_investigator: { bg: "bg-purple-500/12 text-purple-400 border-purple-500/25", icon: "smart_toy", label: "AI" },
+    human: { bg: "bg-blue-500/12 text-blue-400 border-blue-500/25", icon: "person", label: "Human" },
   };
   const c = config[actor] || config.system;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold ${c.bg}`}>
-      <span className="text-xs">{c.icon}</span>
+      <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>{c.icon}</span>
       {c.label}
     </span>
   );
@@ -70,7 +70,7 @@ function StatCard({ label, value, icon }: { label: string; value: number; icon: 
   return (
     <div className="glass-card glass-card-hover p-4">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg opacity-50">{icon}</span>
+        <span className="material-symbols-outlined opacity-40" style={{ fontSize: "18px" }}>{icon}</span>
         <span className="text-[11px] text-fintrix-text-muted uppercase tracking-wider font-medium">{label}</span>
       </div>
       <p className="text-2xl font-bold">{value}</p>
@@ -241,10 +241,10 @@ export default function AuditTrail() {
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
-          <StatCard label="Total Entries" value={stats.total} icon="📋" />
-          <StatCard label="System Actions" value={stats.by_actor.system || 0} icon="⚙️" />
-          <StatCard label="AI Actions" value={stats.by_actor.ai_investigator || 0} icon="🤖" />
-          <StatCard label="Human Actions" value={stats.by_actor.human || 0} icon="👤" />
+          <StatCard label="Total Entries" value={stats.total} icon="list_alt" />
+          <StatCard label="System Actions" value={stats.by_actor.system || 0} icon="settings" />
+          <StatCard label="AI Actions" value={stats.by_actor.ai_investigator || 0} icon="smart_toy" />
+          <StatCard label="Human Actions" value={stats.by_actor.human || 0} icon="person" />
         </div>
       )}
 
@@ -288,7 +288,7 @@ export default function AuditTrail() {
         </div>
       ) : logs.length === 0 ? (
         <div className="glass-card p-16 text-center">
-          <div className="text-4xl mb-4 opacity-20">⟟</div>
+          <span className="material-symbols-outlined text-fintrix-text-dimmed block mb-3" style={{ fontSize: "40px", opacity: 0.2 }}>history</span>
           <h3 className="text-sm font-semibold text-fintrix-text-muted mb-1">No audit entries yet</h3>
           <p className="text-xs text-fintrix-text-dimmed">Run the pipeline to generate audit trail entries</p>
         </div>

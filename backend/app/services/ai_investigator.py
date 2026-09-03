@@ -16,6 +16,7 @@ Graceful degradation: if LLM is unavailable, use rule-based results or escalate.
 """
 
 import json
+import re
 import time
 import traceback
 from datetime import datetime
@@ -251,6 +252,19 @@ async def _call_gemini_prose(prompt: str) -> str:
     return response.text.strip()
 
 
+def _extract_json_payload(text: str) -> dict:
+    """Extract JSON object from text or markdown code block."""
+    text = text.strip()
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        return json.loads(match.group(1))
+    brace_start = text.find("{")
+    brace_end = text.rfind("}")
+    if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
+        return json.loads(text[brace_start:brace_end + 1])
+    return json.loads(text)
+
+
 async def _call_groq(prompt: str) -> dict:
     """Call Groq API for full investigation. Returns parsed JSON response."""
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -261,7 +275,7 @@ async def _call_groq(prompt: str) -> dict:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "llama-3.3-70b-versatile",
+                "model": "groq/compound",
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
@@ -273,9 +287,10 @@ async def _call_groq(prompt: str) -> dict:
         )
         response.raise_for_status()
         data = response.json()
-        text = data["choices"][0]["message"]["content"].strip()
+        raw_text = data["choices"][0]["message"]["content"].strip()
         usage = data.get("usage", {})
-        return json.loads(text), usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
+        parsed = _extract_json_payload(raw_text)
+        return parsed, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
 
 
 async def _call_groq_prose(prompt: str) -> str:
@@ -288,7 +303,7 @@ async def _call_groq_prose(prompt: str) -> str:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "llama-3.1-8b-instant",
+                "model": "groq/compound",
                 "messages": [
                     {"role": "user", "content": prompt},
                 ],

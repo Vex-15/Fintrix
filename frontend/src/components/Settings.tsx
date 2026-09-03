@@ -77,12 +77,12 @@ export default function Settings({ user }: SettingsProps) {
   };
 
   const sections = [
-    { id: "api-keys", label: "API Keys", icon: "🔑" },
-    { id: "profile", label: "Profile", icon: "👤" },
-    { id: "scheduler", label: "Scheduler", icon: "⏰" },
-    { id: "razorpay", label: "Razorpay", icon: "💳" },
-    { id: "export", label: "Export Data", icon: "📤" },
-    { id: "diagnostics", label: "Diagnostics", icon: "🔧" },
+    { id: "api-keys", label: "API Keys", icon: "key" },
+    { id: "profile", label: "Profile", icon: "person" },
+    { id: "scheduler", label: "Scheduler", icon: "schedule" },
+    { id: "razorpay", label: "Razorpay", icon: "credit_card" },
+    { id: "export", label: "Export Data", icon: "download" },
+    { id: "diagnostics", label: "Diagnostics", icon: "build" },
   ];
 
   return (
@@ -105,7 +105,7 @@ export default function Settings({ user }: SettingsProps) {
                   : "text-fintrix-text-muted hover:bg-fintrix-surface-2 hover:text-fintrix-text"
               }`}
             >
-              <span>{s.icon}</span>
+              <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>{s.icon}</span>
               {s.label}
             </button>
           ))}
@@ -282,7 +282,7 @@ export default function Settings({ user }: SettingsProps) {
               </div>
 
               <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
-                <p className="text-sm text-blue-400 font-medium mb-2">💳 Integration Setup</p>
+                <p className="text-sm text-blue-400 font-medium mb-2 flex items-center gap-1.5"><span className="material-symbols-outlined icon-sm">credit_card</span> Integration Setup</p>
                 <p className="text-xs text-fintrix-text-dimmed">
                   Configure your Razorpay credentials in the <code className="text-blue-400">.env</code> file:
                 </p>
@@ -320,16 +320,16 @@ RAZORPAY_WEBHOOK_SECRET=xxxxx`}
 
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { label: "Transactions", icon: "📋", desc: "All payment/refund records", action: () => api.exportTransactions() },
-                  { label: "Exceptions", icon: "⚠️", desc: "All detected exceptions", action: () => api.exportExceptions() },
-                  { label: "Audit Trail", icon: "📜", desc: "Complete audit log", action: () => api.exportAuditTrail() },
+                  { label: "Transactions", icon: "receipt_long", desc: "All payment/refund records", action: () => api.exportTransactions() },
+                  { label: "Exceptions", icon: "warning", desc: "All detected exceptions", action: () => api.exportExceptions() },
+                  { label: "Audit Trail", icon: "history", desc: "Complete audit log", action: () => api.exportAuditTrail() },
                 ].map((item) => (
                   <button
                     key={item.label}
                     onClick={item.action}
                     className="p-4 rounded-xl bg-fintrix-surface-2/30 border border-fintrix-border-subtle hover:border-fintrix-primary/30 transition-all text-left cursor-pointer group"
                   >
-                    <span className="text-2xl">{item.icon}</span>
+                    <span className="material-symbols-outlined text-fintrix-text-muted group-hover:text-fintrix-primary transition-colors" style={{ fontSize: "28px" }}>{item.icon}</span>
                     <p className="text-sm text-fintrix-text font-medium mt-2 group-hover:text-fintrix-primary transition-colors">{item.label}</p>
                     <p className="text-xs text-fintrix-text-dimmed mt-0.5">{item.desc}</p>
                   </button>

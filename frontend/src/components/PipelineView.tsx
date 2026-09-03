@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api, type PipelineResult } from "../api";
 
-function formatINR(paise: number): string {
-  return `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
-}
-
 // ── Stage Card ───────────────────────────────────────────────────────────────
 function StageCard({
   stage,
@@ -36,19 +32,19 @@ function StageCard({
   return (
     <div className={`glass-card p-5 transition-all duration-500 ${styles[status]} ${progressClasses[status]}`}>
       <div className="flex items-center gap-3 mb-3">
-        <div className="text-2xl">{icon}</div>
+        <span className="material-symbols-outlined" style={{ fontSize: "24px" }}>{icon}</span>
         <div className="flex-1">
           <h4 className="text-sm font-bold">{stage}</h4>
           <p className="text-[10px] opacity-60">{description}</p>
         </div>
         {status === "done" && (
           <div className="w-7 h-7 rounded-full bg-fintrix-success/15 flex items-center justify-center">
-            <span className="text-xs">✓</span>
+            <span className="material-symbols-outlined icon-sm">check</span>
           </div>
         )}
         {status === "running" && (
           <div className="w-7 h-7 rounded-full bg-fintrix-primary/15 flex items-center justify-center">
-            <span className="text-xs animate-spin-slow" style={{ animationDuration: '2s', animation: 'spin-slow 2s linear infinite' }}>⟳</span>
+            <span className="material-symbols-outlined icon-sm" style={{ animation: 'spin-slow 2s linear infinite' }}>sync</span>
           </div>
         )}
       </div>
@@ -117,7 +113,7 @@ function UploadZone({
       />
 
       <div className="text-center">
-        <div className="text-2xl mb-2">{icon}</div>
+        <span className="material-symbols-outlined text-fintrix-primary/60 mb-2 block" style={{ fontSize: "28px" }}>{icon}</span>
         <p className="text-sm font-medium">{label}</p>
         <p className="text-[11px] text-fintrix-text-muted mt-1">
           {uploading ? "Uploading..." : "Drop CSV or click to browse"}
@@ -322,7 +318,7 @@ export default function PipelineView() {
           <UploadZone
             label="Transactions"
             type="transactions"
-            icon="💳"
+            icon="credit_card"
             onUpload={handleUpload}
             uploading={uploading}
             result={uploadResults["transactions"] || null}
@@ -330,7 +326,7 @@ export default function PipelineView() {
           <UploadZone
             label="Settlements"
             type="settlements"
-            icon="💰"
+            icon="payments"
             onUpload={handleUpload}
             uploading={uploading}
             result={uploadResults["settlements"] || null}
@@ -338,7 +334,7 @@ export default function PipelineView() {
           <UploadZone
             label="Bank Statements"
             type="bank-statements"
-            icon="🏦"
+            icon="account_balance"
             onUpload={handleUpload}
             uploading={uploading}
             result={uploadResults["bank-statements"] || null}
@@ -361,14 +357,14 @@ export default function PipelineView() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StageCard
             stage="Ingest"
-            icon="📥"
+            icon="download"
             description="Load financial records"
             status={stage === "generating" ? "running" : stage !== "idle" ? "done" : "idle"}
             stats={hasData && dataStatus ? { records: dataStatus.transactions + dataStatus.settlements + dataStatus.bank_statements, sources: 3 } : undefined}
           />
           <StageCard
             stage="Reconcile"
-            icon="⚖️"
+            icon="balance"
             description="6-step deterministic matching"
             status={stage === "reconciling" ? "running" : pipelineResult ? "done" : "idle"}
             stats={pipelineResult ? {
@@ -379,7 +375,7 @@ export default function PipelineView() {
           />
           <StageCard
             stage="Investigate"
-            icon="🧠"
+            icon="psychology"
             description="AI-powered root-cause analysis"
             status={stage === "investigating" ? "running" : pipelineResult ? "done" : "idle"}
             stats={pipelineResult ? {
@@ -389,7 +385,7 @@ export default function PipelineView() {
           />
           <StageCard
             stage="Resolve"
-            icon="✅"
+            icon="task_alt"
             description="Risk-aware auto-resolution"
             status={stage === "done" ? "done" : "idle"}
             stats={pipelineResult ? {
@@ -440,7 +436,7 @@ export default function PipelineView() {
           </div>
 
           {/* Exception type breakdown */}
-          {pipelineResult.summary.exception_types && (
+          {Boolean(pipelineResult.summary.exception_types) && (
             <div className="mt-5 pt-5 border-t border-fintrix-border">
               <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-3">Exception Types Detected</p>
               <div className="flex flex-wrap gap-2">
@@ -450,7 +446,7 @@ export default function PipelineView() {
                     className="px-3 py-1.5 rounded-lg bg-fintrix-surface-2/50 border border-fintrix-border-subtle text-xs font-medium"
                   >
                     <span className="text-fintrix-text-muted capitalize">{type.replace(/_/g, " ")}</span>
-                    <span className="ml-2 text-fintrix-text font-bold">{count}</span>
+                    <span className="ml-2 text-fintrix-text font-bold">{String(count)}</span>
                   </span>
                 ))}
               </div>

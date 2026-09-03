@@ -135,7 +135,7 @@ export default function Analytics() {
       {sla && (
         <div className="glass-card rounded-xl p-6 border border-fintrix-border-subtle">
           <h3 className="text-lg font-semibold text-fintrix-text mb-4 flex items-center gap-2">
-            <span className="text-amber-400">⏱</span> SLA Performance
+            <span className="material-symbols-outlined text-amber-400" style={{ fontSize: "20px" }}>timer</span> SLA Performance
           </h3>
           <div className="grid grid-cols-3 gap-6">
             <div>
@@ -205,7 +205,7 @@ export default function Analytics() {
           {/* Accuracy Trend */}
           <div className="glass-card rounded-xl p-6 border border-fintrix-border-subtle">
             <h3 className="text-lg font-semibold text-fintrix-text mb-4 flex items-center gap-2">
-              <span className="text-emerald-400">📈</span> Accuracy Trend
+              <span className="material-symbols-outlined text-emerald-400" style={{ fontSize: "20px" }}>trending_up</span> Accuracy Trend
             </h3>
             {trends.run_trends.length > 0 ? (
               <ResponsiveContainer width="100%" height={180}>
@@ -249,7 +249,7 @@ export default function Analytics() {
           {/* Exception Volume */}
           <div className="glass-card rounded-xl p-6 border border-fintrix-border-subtle">
             <h3 className="text-lg font-semibold text-fintrix-text mb-4 flex items-center gap-2">
-              <span className="text-red-400">📊</span> Exception Volume
+              <span className="material-symbols-outlined text-red-400" style={{ fontSize: "20px" }}>bar_chart</span> Exception Volume
             </h3>
             {trends.exception_trends.length > 0 ? (
               <ResponsiveContainer width="100%" height={180}>
@@ -284,7 +284,7 @@ export default function Analytics() {
       {roi && (
         <div className="glass-card rounded-xl p-6 border border-fintrix-border-subtle">
           <h3 className="text-lg font-semibold text-fintrix-text mb-4 flex items-center gap-2">
-            <span className="text-emerald-400">💰</span> ROI Calculator
+            <span className="material-symbols-outlined text-emerald-400" style={{ fontSize: "20px" }}>savings</span> ROI Calculator
           </h3>
           <div className="grid grid-cols-3 gap-8">
             <div className="space-y-3">
@@ -313,7 +313,7 @@ export default function Analytics() {
       {forecast && (
         <div className="glass-card rounded-xl p-6 border border-fintrix-border-subtle">
           <h3 className="text-lg font-semibold text-fintrix-text mb-4 flex items-center gap-2">
-            <span className="text-blue-400">📈</span> Cash Flow Forecast (Next {forecast.forecast_days} Days)
+            <span className="material-symbols-outlined text-blue-400" style={{ fontSize: "20px" }}>show_chart</span> Cash Flow Forecast (Next {forecast.forecast_days} Days)
           </h3>
           <div className="grid grid-cols-3 gap-6 mb-6">
             <div>
@@ -360,7 +360,7 @@ export default function Analytics() {
         <div className="glass-card rounded-xl p-6 border border-fintrix-border-subtle">
           <div className="flex justify-between items-start mb-4">
             <h3 className="text-lg font-semibold text-fintrix-text flex items-center gap-2">
-              <span className="text-amber-400">⚖️</span> Tax & Fee Reconciliation
+              <span className="material-symbols-outlined text-amber-400" style={{ fontSize: "20px" }}>gavel</span> Tax & Fee Reconciliation
             </h3>
             <div className="text-right">
               <p className="text-xs text-fintrix-text-muted uppercase tracking-wider">Total Discrepancy</p>
@@ -430,7 +430,7 @@ export default function Analytics() {
           <div className="glass-card rounded-xl p-6 border border-fintrix-border-subtle">
             <div className="flex justify-between items-start mb-6">
               <h3 className="text-lg font-semibold text-fintrix-text flex items-center gap-2">
-                <span className="text-violet-400">🎯</span> Confidence Calibration
+                <span className="material-symbols-outlined text-violet-400" style={{ fontSize: "20px" }}>target</span> Confidence Calibration
               </h3>
               <div className="text-right">
                 <p className="text-xs text-fintrix-text-muted uppercase tracking-wider">ECE Score</p>
@@ -485,7 +485,7 @@ export default function Analytics() {
         {sensitivity && (
           <div className="glass-card rounded-xl p-6 border border-fintrix-border-subtle">
             <h3 className="text-lg font-semibold text-fintrix-text mb-4 flex items-center gap-2">
-              <span className="text-emerald-400">🎛️</span> Threshold Sensitivity
+              <span className="material-symbols-outlined text-emerald-400" style={{ fontSize: "20px" }}>tune</span> Threshold Sensitivity
             </h3>
             
             {/* Slider */}

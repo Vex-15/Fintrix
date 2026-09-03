@@ -99,6 +99,47 @@ def _validate_sql(sql: str) -> bool:
     return True
 
 
+def _extract_qa_json(text: str) -> dict:
+    """Extract JSON object from text or markdown code block."""
+    text = text.strip()
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        return json.loads(match.group(1))
+    brace_start = text.find("{")
+    brace_end = text.rfind("}")
+    if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
+        return json.loads(text[brace_start:brace_end + 1])
+    return json.loads(text)
+
+
+async def _call_groq_qa(question: str) -> dict:
+    """Call Groq API to generate SQL from a natural-language question."""
+    import httpx
+
+    prompt = f"{QA_SYSTEM_PROMPT}\n\nUser question: {question}"
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.groq_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "groq/compound",
+                "messages": [
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.1,
+                "response_format": {"type": "json_object"},
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+        return _extract_qa_json(content)
+
+
 async def _call_gemini_qa(question: str) -> dict:
     """Call Gemini to generate SQL from a natural-language question."""
     import google.generativeai as genai
@@ -207,10 +248,26 @@ async def ask_question(db: AsyncSession, question: str) -> dict:
             "source": str,       # "gemini" | "fallback"
         }
     """
-    # Try Gemini path first
-    if settings.gemini_api_key:
+    # Try LLM (Groq first, then Gemini)
+    llm_source = None
+    llm_result = None
+
+    if settings.groq_api_key:
+        try:
+            llm_result = await _call_groq_qa(question)
+            llm_source = "groq"
+        except Exception:
+            pass
+
+    if not llm_result and settings.gemini_api_key:
         try:
             llm_result = await _call_gemini_qa(question)
+            llm_source = "gemini"
+        except Exception:
+            pass
+
+    if llm_result:
+        try:
             sql = llm_result.get("sql")
             explanation = llm_result.get("explanation", "")
 
@@ -240,7 +297,7 @@ async def ask_question(db: AsyncSession, question: str) -> dict:
                         "answer": answer,
                         "data": data,
                         "sql": sql,
-                        "source": "gemini",
+                        "source": llm_source or "llm",
                     }
                 except Exception as e:
                     # SQL execution failed — fall through to fallback
@@ -250,7 +307,7 @@ async def ask_question(db: AsyncSession, question: str) -> dict:
                                   f"Explanation: {explanation}",
                         "data": [],
                         "sql": sql,
-                        "source": "gemini_error",
+                        "source": f"{llm_source}_error" if llm_source else "llm_error",
                     }
             elif sql is None:
                 # LLM explicitly said it can't answer
@@ -259,7 +316,7 @@ async def ask_question(db: AsyncSession, question: str) -> dict:
                     "answer": explanation or "I cannot answer this question with the available data.",
                     "data": [],
                     "sql": None,
-                    "source": "gemini",
+                    "source": llm_source or "llm",
                 }
             else:
                 # SQL was generated but failed validation — blocked
@@ -269,7 +326,7 @@ async def ask_question(db: AsyncSession, question: str) -> dict:
                               "Only SELECT queries are permitted.",
                     "data": [],
                     "sql": None,
-                    "source": "gemini_blocked",
+                    "source": f"{llm_source}_blocked" if llm_source else "llm_blocked",
                 }
 
         except Exception:

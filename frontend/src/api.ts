@@ -140,7 +140,6 @@ export const api = {
   isAuthenticated: () => !!getToken(),
 
   // ── Status ────────────────────────────────────────────────────────────
-  health: () => fetch("/health").then((r) => r.json()),
   ingestionStatus: () => request<{ transactions: number; settlements: number; bank_statements: number }>("/ingest/status"),
 
   // ── Synthetic data ────────────────────────────────────────────────────

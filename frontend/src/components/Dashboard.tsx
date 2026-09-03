@@ -3,7 +3,6 @@ import {
   api,
   type PipelineResult,
   type DashboardStats,
-  type ExceptionSummary,
 } from "../api";
 
 /** Format paise as ₹ amount */
@@ -115,7 +114,7 @@ function MetricCard({
   delay = 0,
 }: {
   label: string;
-  value: string | number;
+  value: React.ReactNode;
   sub?: string;
   icon?: string;
   color?: string;
@@ -129,7 +128,7 @@ function MetricCard({
     >
       <div className="flex items-start justify-between mb-3">
         <p className="text-[11px] text-fintrix-text-muted uppercase tracking-wider font-medium">{label}</p>
-        {icon && <span className="text-lg opacity-40">{icon}</span>}
+        {icon && <span className="material-symbols-outlined opacity-30" style={{ fontSize: "20px" }}>{icon}</span>}
       </div>
       <p className={`text-2xl font-bold tracking-tight ${color}`}>{value}</p>
       {sub && <p className="text-[11px] text-fintrix-text-muted mt-1.5">{sub}</p>}
@@ -158,9 +157,9 @@ function PipelineStage({
   return (
     <div className={`flex-1 rounded-xl border p-4 transition-all duration-500 ${styles[status]}`}>
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-lg">{icon}</span>
+        <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>{icon}</span>
         <span className="text-sm font-semibold">{label}</span>
-        {status === "done" && <span className="ml-auto text-xs">✓</span>}
+        {status === "done" && <span className="material-symbols-outlined ml-auto icon-sm">check_circle</span>}
         {status === "running" && <span className="ml-auto text-xs animate-pulse">●</span>}
       </div>
       {detail && <p className="text-[11px] opacity-70 mt-1">{detail}</p>}
@@ -168,26 +167,6 @@ function PipelineStage({
   );
 }
 
-// ── Exception Type Badge ─────────────────────────────────────────────────────
-function TypeBadge({ type, count }: { type: string; count: number }) {
-  const colors: Record<string, string> = {
-    fee_discrepancy: "bg-amber-500/12 text-amber-400 border-amber-500/25",
-    amount_mismatch: "bg-red-500/12 text-red-400 border-red-500/25",
-    missing_settlement: "bg-purple-500/12 text-purple-400 border-purple-500/25",
-    missing_bank_entry: "bg-orange-500/12 text-orange-400 border-orange-500/25",
-    timing_mismatch: "bg-blue-500/12 text-blue-400 border-blue-500/25",
-    duplicate_suspected: "bg-pink-500/12 text-pink-400 border-pink-500/25",
-    unexpected_adjustment: "bg-teal-500/12 text-teal-400 border-teal-500/25",
-    rounding_difference: "bg-gray-500/12 text-gray-400 border-gray-500/25",
-  };
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium ${colors[type] || "bg-gray-500/12 text-gray-400 border-gray-500/25"}`}>
-      {type.replace(/_/g, " ")}
-      <span className="bg-white/8 rounded-full px-1.5 py-0.5 text-[10px] font-bold">{count}</span>
-    </span>
-  );
-}
 
 // ── Recent Exception Row ─────────────────────────────────────────────────────
 function RecentExceptionRow({ exc }: { exc: DashboardStats["recent_exceptions"][0] }) {
@@ -331,7 +310,6 @@ export default function Dashboard() {
   }
 
   const hasData = stats && stats.data_sources.transactions > 0;
-  const latestRun = stats?.run_history?.[0];
 
   return (
     <div className="space-y-8 stagger-children">
@@ -381,28 +359,28 @@ export default function Dashboard() {
           <div className="flex items-center gap-2">
             <PipelineStage
               label="Ingest"
-              icon="📥"
+              icon="download"
               status={pipelineStage === "generating" ? "running" : pipelineStage !== "idle" ? "done" : "idle"}
               detail={stats ? `${stats.data_sources.transactions} txns` : undefined}
             />
             <div className={`pipeline-connector ${pipelineStage !== "idle" && pipelineStage !== "generating" ? "pipeline-connector-active" : ""}`} />
             <PipelineStage
               label="Reconcile"
-              icon="⚖️"
+              icon="balance"
               status={pipelineStage === "reconciling" ? "running" : pipelineResult ? "done" : "idle"}
               detail={pipelineResult ? `${pipelineResult.reconciliation.matched} matched` : undefined}
             />
             <div className={`pipeline-connector ${pipelineStage === "investigating" || pipelineStage === "done" ? "pipeline-connector-active" : ""}`} />
             <PipelineStage
               label="Investigate"
-              icon="🧠"
+              icon="psychology"
               status={pipelineStage === "investigating" ? "running" : pipelineResult ? "done" : "idle"}
               detail={pipelineResult ? `${pipelineResult.investigation.total_investigated} analyzed` : undefined}
             />
             <div className={`pipeline-connector ${pipelineStage === "done" ? "pipeline-connector-active" : ""}`} />
             <PipelineStage
               label="Resolve"
-              icon="✅"
+              icon="task_alt"
               status={pipelineStage === "done" ? "done" : "idle"}
               detail={pipelineResult ? `${pipelineResult.investigation.auto_resolved} auto-resolved` : undefined}
             />
@@ -417,7 +395,7 @@ export default function Dashboard() {
             label="Match Rate"
             value={`${((pipelineResult.reconciliation.matched / Math.max(pipelineResult.reconciliation.total_records, 1)) * 100).toFixed(1)}%`}
             sub={`${pipelineResult.reconciliation.matched} of ${pipelineResult.reconciliation.total_records}`}
-            icon="⬡"
+            icon="verified"
             color="text-fintrix-success"
             glowClass="glow-success"
           />
@@ -425,7 +403,7 @@ export default function Dashboard() {
             label="Exceptions Found"
             value={pipelineResult.reconciliation.exceptions}
             sub="Discrepancies detected"
-            icon="◈"
+            icon="warning"
             color="text-fintrix-warning"
             glowClass="glow-warning"
           />
@@ -433,7 +411,7 @@ export default function Dashboard() {
             label="Auto-Resolved"
             value={pipelineResult.investigation.auto_resolved}
             sub="High confidence · low risk"
-            icon="⟐"
+            icon="auto_fix_high"
             color="text-fintrix-accent"
             glowClass="glow-blue"
           />
@@ -441,7 +419,7 @@ export default function Dashboard() {
             label="Needs Review"
             value={pipelineResult.investigation.escalated}
             sub="Human approval required"
-            icon="⚑"
+            icon="flag"
             color="text-fintrix-danger"
             glowClass="glow-danger"
           />
@@ -452,31 +430,31 @@ export default function Dashboard() {
             label="Transactions"
             value={<AnimatedNumber value={stats.data_sources.transactions} />}
             sub="Payments · Refunds · Adjustments"
-            icon="📊"
+            icon="receipt_long"
           />
           <MetricCard
             label="Settlements"
             value={<AnimatedNumber value={stats.data_sources.settlements} />}
             sub="Batched payouts"
-            icon="💰"
+            icon="payments"
           />
           <MetricCard
             label="Bank Entries"
             value={<AnimatedNumber value={stats.data_sources.bank_statements} />}
             sub="Bank credit records"
-            icon="🏦"
+            icon="account_balance"
           />
           <MetricCard
             label="Exceptions"
             value={<AnimatedNumber value={stats.exceptions.total} />}
             sub={`${stats.exceptions.pending} pending · ${stats.exceptions.resolved} resolved`}
-            icon="⚠️"
+            icon="error_outline"
             color={stats.exceptions.pending > 0 ? "text-fintrix-warning" : "text-fintrix-success"}
           />
         </div>
       ) : (
         <div className="glass-card p-12 text-center">
-          <div className="text-4xl mb-4 opacity-30">⬡</div>
+          <span className="material-symbols-outlined text-fintrix-text-dimmed mb-4 block" style={{ fontSize: "48px", opacity: 0.25 }}>database</span>
           <h3 className="text-lg font-semibold text-fintrix-text-muted mb-2">No data loaded yet</h3>
           <p className="text-sm text-fintrix-text-dimmed mb-6">
             Click "Load Data & Run Pipeline" to generate synthetic financial records and run the full reconciliation.
@@ -675,7 +653,7 @@ export default function Dashboard() {
             label="Total Amount at Risk"
             value={formatINR(stats.financial.total_at_risk)}
             sub="Across all unresolved exceptions"
-            icon="⚠️"
+            icon="warning"
             color="text-fintrix-warning"
             glowClass="glow-warning"
           />
@@ -683,7 +661,7 @@ export default function Dashboard() {
             label="Amount Resolved"
             value={formatINR(stats.financial.resolved_at_risk)}
             sub="Successfully reconciled"
-            icon="✓"
+            icon="check_circle"
             color="text-fintrix-success"
             glowClass="glow-success"
           />
@@ -691,7 +669,7 @@ export default function Dashboard() {
             label="Pending Review"
             value={formatINR(stats.financial.pending_at_risk)}
             sub="Awaiting human decision"
-            icon="⏳"
+            icon="hourglass_top"
             color="text-fintrix-danger"
           />
         </div>

@@ -10,13 +10,13 @@ import QAAgent from "./components/QAAgent";
 import { api, type UserProfile } from "./api";
 
 const TABS = [
-  { id: "dashboard", label: "Dashboard", icon: "⬡", desc: "Overview & metrics" },
-  { id: "pipeline", label: "Pipeline", icon: "⟐", desc: "Run & monitor" },
-  { id: "exceptions", label: "Exceptions", icon: "◈", desc: "Investigate & resolve" },
-  { id: "qa", label: "Q&A Agent", icon: "🤖", desc: "Ask data questions" },
-  { id: "analytics", label: "Analytics", icon: "◉", desc: "Trends & ROI" },
-  { id: "audit", label: "Audit Trail", icon: "⟟", desc: "Immutable log" },
-  { id: "settings", label: "Settings", icon: "⚙", desc: "Config & keys" },
+  { id: "dashboard", label: "Dashboard", icon: "dashboard", desc: "Overview & metrics" },
+  { id: "pipeline", label: "Pipeline", icon: "account_tree", desc: "Run & monitor" },
+  { id: "exceptions", label: "Exceptions", icon: "report_problem", desc: "Investigate & resolve" },
+  { id: "qa", label: "Q&A Agent", icon: "smart_toy", desc: "Ask data questions" },
+  { id: "analytics", label: "Analytics", icon: "analytics", desc: "Trends & ROI" },
+  { id: "audit", label: "Audit Trail", icon: "verified_user", desc: "Immutable log" },
+  { id: "settings", label: "Settings", icon: "settings", desc: "Config & keys" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -27,6 +27,7 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(api.isAuthenticated());
   const [user, setUser] = useState<UserProfile | null>(api.getStoredUser());
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [pageKey, setPageKey] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Check demo mode
@@ -35,7 +36,15 @@ export default function App() {
       if (data.demo_mode) {
         setIsDemoMode(true);
         setIsAuthenticated(true);
-        setUser({ id: 1, email: "admin@fintrix.io", name: "Demo Admin", role: "admin" });
+        setUser({
+          id: 1,
+          email: "admin@fintrix.io",
+          name: "Demo Admin",
+          role: "admin",
+          merchant_id: "demo_merchant",
+          is_active: true,
+          created_at: new Date().toISOString(),
+        });
       }
     }).catch(console.error);
   }, []);
@@ -107,15 +116,24 @@ export default function App() {
     setUser(null);
   };
 
+  const handleTabChange = (tabId: TabId) => {
+    if (tabId !== activeTab) {
+      setActiveTab(tabId);
+      setPageKey((k) => k + 1);
+    }
+  };
+
   // Show login if not authenticated
   if (!isAuthenticated) {
     return <Login onLogin={handleLogin} />;
   }
 
+  const activeTabData = TABS.find((t) => t.id === activeTab)!;
+
   return (
     <div className="min-h-screen bg-fintrix-bg text-fintrix-text flex bg-grid-pattern">
       {/* ── Sidebar ──────────────────────────────────────────────── */}
-      <aside className="w-[260px] shrink-0 bg-fintrix-surface/80 sidebar-glow flex flex-col backdrop-blur-sm">
+      <aside className="w-[252px] shrink-0 bg-fintrix-surface/80 sidebar-glow flex flex-col backdrop-blur-sm">
         {/* Logo */}
         <div className="p-6 pb-5">
           <div className="flex items-center gap-3">
@@ -132,26 +150,27 @@ export default function App() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 space-y-1">
+        <nav className="flex-1 px-3 space-y-0.5">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               id={`nav-${tab.id}`}
-              onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-300 cursor-pointer group ${
+              onClick={() => handleTabChange(tab.id)}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer group ${
                 activeTab === tab.id
-                  ? "bg-fintrix-primary/12 text-fintrix-primary glow-blue"
-                  : "text-fintrix-text-muted hover:bg-fintrix-surface-2 hover:text-fintrix-text"
+                  ? "bg-fintrix-primary/10 text-fintrix-primary"
+                  : "text-fintrix-text-muted hover:bg-fintrix-surface-2/60 hover:text-fintrix-text"
               }`}
             >
               <span
-                className={`text-base w-6 text-center transition-transform duration-300 ${
-                  activeTab === tab.id ? "scale-110" : "group-hover:scale-105"
+                className={`material-symbols-outlined transition-all duration-200 ${
+                  activeTab === tab.id ? "icon-filled" : "group-hover:text-fintrix-text"
                 }`}
+                style={{ fontSize: "19px" }}
               >
                 {tab.icon}
               </span>
-              <div className="text-left">
+              <div className="text-left flex-1">
                 <p className="leading-tight">{tab.label}</p>
                 <p
                   className={`text-[10px] font-normal mt-0.5 transition-colors ${
@@ -162,7 +181,7 @@ export default function App() {
                 </p>
               </div>
               {activeTab === tab.id && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-fintrix-primary shadow-lg shadow-fintrix-primary/50" />
+                <div className="w-1.5 h-5 rounded-full bg-fintrix-primary shadow-lg shadow-fintrix-primary/50" />
               )}
             </button>
           ))}
@@ -187,22 +206,15 @@ export default function App() {
               {!isDemoMode && (
                 <button
                   onClick={handleLogout}
-                  className="text-[10px] text-fintrix-text-dimmed hover:text-red-400 transition-colors cursor-pointer shrink-0"
+                  className="text-fintrix-text-dimmed hover:text-red-400 transition-colors cursor-pointer shrink-0"
                   title="Logout"
                 >
-                  ⏻
+                  <span className="material-symbols-outlined icon-sm">logout</span>
                 </button>
               )}
             </div>
           )}
 
-          {/* Connection Status */}
-          <div className="flex items-center gap-2 mb-3">
-            <span className={`status-dot ${wsConnected ? "status-dot-active" : "status-dot-danger"}`} />
-            <span className="text-[11px] text-fintrix-text-muted">
-              {wsConnected ? "Live Connected" : "Reconnecting..."}
-            </span>
-          </div>
           <div className="text-[11px] text-fintrix-text-dimmed">
             <p className="font-medium text-fintrix-text-muted">Razorpay AI Buildathon</p>
             <p className="mt-0.5">Track 4 · Finance Controller</p>
@@ -213,13 +225,41 @@ export default function App() {
       {/* ── Main Content ─────────────────────────────────────────── */}
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-[1440px] mx-auto p-6 lg:p-8">
-          {activeTab === "dashboard" && <Dashboard />}
-          {activeTab === "pipeline" && <PipelineView />}
-          {activeTab === "exceptions" && <Exceptions />}
-          {activeTab === "qa" && <QAAgent />}
-          {activeTab === "analytics" && <Analytics />}
-          {activeTab === "audit" && <AuditTrail />}
-          {activeTab === "settings" && <Settings user={user} />}
+          {/* Top Context Bar */}
+          <div className="top-bar">
+            <div className="top-bar-title">
+              <span className="material-symbols-outlined icon-filled" style={{ fontSize: "22px" }}>
+                {activeTabData.icon}
+              </span>
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight text-fintrix-text">{activeTabData.label}</h2>
+                <div className="top-bar-breadcrumb">
+                  <span>Fintrix</span>
+                  <span className="separator">/</span>
+                  <span className="text-fintrix-text-muted">{activeTabData.label}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-fintrix-surface-2/50 border border-fintrix-border-subtle">
+                <span className={`status-dot ${wsConnected ? "status-dot-active" : "status-dot-danger"}`} />
+                <span className="text-[11px] text-fintrix-text-muted">
+                  {wsConnected ? "Live" : "Reconnecting"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Page Content with Transition */}
+          <div key={pageKey} className="page-enter">
+            {activeTab === "dashboard" && <Dashboard />}
+            {activeTab === "pipeline" && <PipelineView />}
+            {activeTab === "exceptions" && <Exceptions />}
+            {activeTab === "qa" && <QAAgent />}
+            {activeTab === "analytics" && <Analytics />}
+            {activeTab === "audit" && <AuditTrail />}
+            {activeTab === "settings" && <Settings user={user} />}
+          </div>
         </div>
       </main>
     </div>
