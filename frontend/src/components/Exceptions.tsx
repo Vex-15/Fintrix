@@ -235,7 +235,7 @@ function DeepInvestigationDrawer({
   const inv = data.investigation;
 
   return (
-    <div className="glass-card overflow-y-auto max-h-[calc(100vh-140px)] animate-slide-in-right">
+    <div className="glass-card animate-slide-in-right">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-fintrix-surface/90 backdrop-blur-md border-b border-fintrix-border p-5">
         <div className="flex items-start justify-between">
@@ -753,7 +753,7 @@ export default function Exceptions() {
         </div>
 
         {/* Detail / Deep Investigation Panel */}
-        <div>
+        <div className="max-h-[calc(100vh-280px)] overflow-y-auto pr-2 pb-10">
           {selectedId ? (
             <DeepInvestigationDrawer
               exceptionId={selectedId}

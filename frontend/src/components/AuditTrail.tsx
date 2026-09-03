@@ -180,6 +180,7 @@ export default function AuditTrail() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<"timeline" | "table">("timeline");
+  const [displayLimit, setDisplayLimit] = useState(25);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -297,7 +298,7 @@ export default function AuditTrail() {
         <div className="glass-card p-6">
           <div className="relative">
             <div className="timeline-line" />
-            {logs.map((log) => (
+            {logs.slice(0, displayLimit).map((log) => (
               <TimelineEntry
                 key={log.id}
                 log={log}
@@ -321,7 +322,7 @@ export default function AuditTrail() {
               </tr>
             </thead>
             <tbody>
-              {logs.map((log) => (
+              {logs.slice(0, displayLimit).map((log) => (
                 <tr
                   key={log.id}
                   onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
@@ -361,6 +362,18 @@ export default function AuditTrail() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Load More */}
+      {logs.length > displayLimit && (
+        <div className="text-center pt-4">
+          <button
+            onClick={() => setDisplayLimit((prev) => prev + 25)}
+            className="px-6 py-2.5 bg-fintrix-surface-2 border border-fintrix-border-subtle rounded-xl text-sm font-medium hover:bg-fintrix-surface-3 transition-colors cursor-pointer text-fintrix-text"
+          >
+            Load More (Showing {displayLimit} of {logs.length})
+          </button>
         </div>
       )}
     </div>

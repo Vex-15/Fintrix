@@ -72,6 +72,7 @@ RULES:
 5. Limit results to 50 rows max
 6. The "explanation" should be a brief sentence describing what the query does
 7. If you cannot answer the question with the available schema, set sql to null and explain why
+8. When asked to count or list exceptions/transactions/etc., include ALL records regardless of status unless the user specifically asks about a particular status (e.g. don't add "WHERE status = 'detected'" unless requested).
 
 RESPOND IN THIS EXACT JSON FORMAT:
 {{"sql": "SELECT ...", "explanation": "This query ..."}}

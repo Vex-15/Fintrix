@@ -320,9 +320,9 @@ RAZORPAY_WEBHOOK_SECRET=xxxxx`}
 
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { label: "Transactions", icon: "receipt_long", desc: "All payment/refund records", action: () => api.exportTransactions() },
-                  { label: "Exceptions", icon: "warning", desc: "All detected exceptions", action: () => api.exportExceptions() },
-                  { label: "Audit Trail", icon: "history", desc: "Complete audit log", action: () => api.exportAuditTrail() },
+                  { label: "Transactions", icon: "receipt_long", desc: "All payment/refund records", action: () => alert("Exporting Transactions is disabled in the hackathon demo.") },
+                  { label: "Exceptions", icon: "warning", desc: "All detected exceptions", action: () => alert("Exporting Exceptions is disabled in the hackathon demo.") },
+                  { label: "Audit Trail", icon: "history", desc: "Complete audit log", action: () => alert("Exporting Audit Trail is disabled in the hackathon demo.") },
                 ].map((item) => (
                   <button
                     key={item.label}

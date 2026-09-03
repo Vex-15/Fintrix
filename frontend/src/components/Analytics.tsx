@@ -66,8 +66,8 @@ export default function Analytics() {
     }
   };
 
-  const fmt = (n: number) => n.toLocaleString("en-IN");
-  const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`;
+  const fmt = (n?: number | null) => (n != null ? n.toLocaleString("en-IN") : "0");
+  const fmtPct = (n?: number | null) => (n != null ? `${(n * 100).toFixed(1)}%` : "0.0%");
 
   if (loading) {
     return (
@@ -333,7 +333,7 @@ export default function Analytics() {
           </div>
           
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={forecast.daily_forecasts.map((d: any) => ({
+            <BarChart data={forecast.daily_forecasts?.map((d: any) => ({
               date: d.date.split("-").slice(1).join("/"),
               projected: d.projected_rupees,
             }))}>
@@ -447,7 +447,7 @@ export default function Analytics() {
             <ResponsiveContainer width="100%" height={220}>
               <ComposedChart
                 data={calibration.calibration_curve
-                  .filter((b: any) => b.count > 0)
+                  ?.filter((b: any) => b.count > 0)
                   .map((b: any) => ({
                     range: b.confidence_range,
                     predicted: +(b.predicted_confidence * 100).toFixed(1),
