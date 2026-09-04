@@ -136,7 +136,8 @@ def _build_investigation_prompt(exception: Exception_, related_data: dict) -> st
 
 async def _gather_related_data(db: AsyncSession, exception: Exception_) -> dict:
     """Gather all related entities for the investigation context."""
-    related: dict = {"transactions": [], "settlement": None, "bank_statement": None}
+    related: dict = {"transactions": [],
+                     "settlement": None, "bank_statement": None}
     ctx = exception.context or {}
 
     # Get related transactions
@@ -220,7 +221,8 @@ async def _call_gemini(prompt: str) -> dict:
 
     response = model.generate_content(
         [
-            {"role": "user", "parts": [{"text": SYSTEM_PROMPT + "\n\n" + prompt}]},
+            {"role": "user", "parts": [
+                {"text": SYSTEM_PROMPT + "\n\n" + prompt}]},
         ],
         generation_config=genai.types.GenerationConfig(
             response_mime_type="application/json",
@@ -275,7 +277,7 @@ async def _call_groq(prompt: str) -> dict:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "groq/compound",
+                "model": settings.groq_model,
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
@@ -326,7 +328,7 @@ async def _call_llm(prompt: str) -> tuple[dict, str, int, int]:
     if settings.groq_api_key:
         try:
             result, p_tokens, r_tokens = await _call_groq(prompt)
-            return result, "llama-3.3-70b-versatile", p_tokens, r_tokens
+            return result, settings.groq_model, p_tokens, r_tokens
         except Exception as e:
             # Fall through to Gemini if available
             if not settings.gemini_api_key:
@@ -335,11 +337,13 @@ async def _call_llm(prompt: str) -> tuple[dict, str, int, int]:
     if settings.gemini_api_key:
         try:
             result = await _call_gemini(prompt)
-            return result, "gemini-2.0-flash", len(prompt) // 4, 500  # approximate tokens
+            # approximate tokens
+            return result, "gemini-2.0-flash", len(prompt) // 4, 500
         except Exception as e:
             raise ConnectionError(f"LLM provider failed: {e}") from e
 
-    raise ConnectionError("No LLM provider available (set GROQ_API_KEY or GEMINI_API_KEY)")
+    raise ConnectionError(
+        "No LLM provider available (set GROQ_API_KEY or GEMINI_API_KEY)")
 
 
 async def _call_llm_prose(root_cause: str, category: str, evidence: list[str]) -> tuple[str, str, int, int]:
@@ -370,7 +374,8 @@ async def _call_llm_prose(root_cause: str, category: str, evidence: list[str]) -
         except Exception as e:
             raise ConnectionError(f"LLM prose call failed: {e}") from e
 
-    raise ConnectionError("No LLM provider available (set GROQ_API_KEY or GEMINI_API_KEY)")
+    raise ConnectionError(
+        "No LLM provider available (set GROQ_API_KEY or GEMINI_API_KEY)")
 
 
 def _validate_llm_response(response: dict) -> dict:
@@ -406,9 +411,11 @@ def _validate_llm_response(response: dict) -> dict:
     # Enforce evidence citations (must contain actual IDs like pay_xxx, setl_xxx)
     import re
     evidence_text = " ".join(validated["evidence"]).lower()
-    has_citation = bool(re.search(r"(pay_|setl_|ref_|rfnd_|order_)\w+", evidence_text))
+    has_citation = bool(
+        re.search(r"(pay_|setl_|ref_|rfnd_|order_)\w+", evidence_text))
     if not has_citation and validated["evidence"]:
-        validated["evidence"].append("Warning: AI failed to cite specific transaction or settlement IDs.")
+        validated["evidence"].append(
+            "Warning: AI failed to cite specific transaction or settlement IDs.")
         # Penalize confidence for lacking concrete citations
         validated["confidence"] = min(validated["confidence"], 0.4)
 
@@ -467,25 +474,28 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
                     old_state={"status": old_status}, new_state={"status": "investigating"})
 
     start_time = time.time()
-    
+
     # -------------------------------------------------------------------------
     # DETERMINISTIC SHORT-CIRCUIT
     # Skip LLM for exceptions perfectly explained by deterministic rules.
     # -------------------------------------------------------------------------
-    deterministic_types = ["fee_discrepancy", "rounding_difference", "timing_mismatch"]
+    deterministic_types = ["fee_discrepancy",
+                           "rounding_difference", "timing_mismatch"]
     is_small_mismatch = exc.type == "amount_mismatch" and exc.amount_at_risk <= 5000  # 50 INR
-    
+
     if exc.type in deterministic_types or is_small_mismatch:
         latency_ms = int((time.time() - start_time) * 1000)
         exc.status = "resolved"
         exc.resolved_at = datetime.utcnow()
-        
+
         root_cause = f"Deterministic resolution for {exc.type}"
         explanation = f"Exception of type {exc.type} fully explained by deterministic reconciliation rules. No AI investigation required."
 
-        evidence_list = [f"Exception type '{exc.type}' matches deterministic resolution rule"]
+        evidence_list = [
+            f"Exception type '{exc.type}' matches deterministic resolution rule"]
         if is_small_mismatch:
-            evidence_list.append(f"Amount at risk ({exc.amount_at_risk} paise) is within auto-resolve threshold")
+            evidence_list.append(
+                f"Amount at risk ({exc.amount_at_risk} paise) is within auto-resolve threshold")
         confidence = 1.0
         recommended_action = "auto_resolve"
         resolution_type = "auto"
@@ -570,7 +580,7 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
             prompt_tokens = None
             response_tokens = None
 
-            if settings.groq_api_key or settings.gemini_api_key:
+            if settings.enable_llm_prose and (settings.groq_api_key or settings.gemini_api_key):
                 try:
                     prose, model_name, prompt_tokens, response_tokens = await _call_llm_prose(
                         root_cause, category, evidence_list
@@ -724,7 +734,7 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
                 confidence=fallback_top.confidence,
                 recommended_action="escalate",  # Always escalate on LLM failure
                 explanation=_build_template_explanation(fallback_top)
-                            + " (LLM unavailable — using rule-based analysis only)",
+                + " (LLM unavailable — using rule-based analysis only)",
                 resolution_type=None,
                 resolved_by=None,
                 model_used="rule_based (llm_unavailable)",
@@ -795,7 +805,8 @@ async def investigate_exception(db: AsyncSession, exception_id: int) -> Investig
             prompt_tokens=0,
             response_tokens=0,
             latency_ms=latency_ms,
-            chain_of_thought={"source": "error", "error": str(e), "fallback": "escalate_all"},
+            chain_of_thought={"source": "error",
+                              "error": str(e), "fallback": "escalate_all"},
         )
         db.add(investigation)
         await db.flush()

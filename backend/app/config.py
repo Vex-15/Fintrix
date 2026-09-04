@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
     groq_model: str = "llama-3.3-70b-versatile"
+    enable_llm_prose: bool = False
 
     # AI Guardrails
     auto_resolve_confidence_threshold: float = 0.85

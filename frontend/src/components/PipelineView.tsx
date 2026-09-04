@@ -17,9 +17,11 @@ function StageCard({
 }) {
   const styles = {
     idle: "border-fintrix-border bg-fintrix-surface text-fintrix-text-muted",
-    running: "border-fintrix-primary/50 bg-fintrix-primary/8 text-fintrix-primary animate-glow-pulse",
+    running:
+      "border-fintrix-primary/50 bg-fintrix-primary/8 text-fintrix-primary animate-glow-pulse",
     done: "border-fintrix-success/40 bg-fintrix-success/6 text-fintrix-success glow-success",
-    error: "border-fintrix-danger/40 bg-fintrix-danger/6 text-fintrix-danger glow-danger",
+    error:
+      "border-fintrix-danger/40 bg-fintrix-danger/6 text-fintrix-danger glow-danger",
   };
 
   const progressClasses = {
@@ -30,9 +32,16 @@ function StageCard({
   };
 
   return (
-    <div className={`glass-card p-5 transition-all duration-500 ${styles[status]} ${progressClasses[status]}`}>
+    <div
+      className={`glass-card p-5 transition-all duration-500 ${styles[status]} ${progressClasses[status]}`}
+    >
       <div className="flex items-center gap-3 mb-3">
-        <span className="material-symbols-outlined" style={{ fontSize: "24px" }}>{icon}</span>
+        <span
+          className="material-symbols-outlined"
+          style={{ fontSize: "24px" }}
+        >
+          {icon}
+        </span>
         <div className="flex-1">
           <h4 className="text-sm font-bold">{stage}</h4>
           <p className="text-[10px] opacity-60">{description}</p>
@@ -44,7 +53,12 @@ function StageCard({
         )}
         {status === "running" && (
           <div className="w-7 h-7 rounded-full bg-fintrix-primary/15 flex items-center justify-center">
-            <span className="material-symbols-outlined icon-sm" style={{ animation: 'spin-slow 2s linear infinite' }}>sync</span>
+            <span
+              className="material-symbols-outlined icon-sm"
+              style={{ animation: "spin-slow 2s linear infinite" }}
+            >
+              sync
+            </span>
           </div>
         )}
       </div>
@@ -53,7 +67,9 @@ function StageCard({
         <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-current/10">
           {Object.entries(stats).map(([key, val]) => (
             <div key={key}>
-              <p className="text-[10px] opacity-50 uppercase tracking-wider">{key.replace(/_/g, " ")}</p>
+              <p className="text-[10px] opacity-50 uppercase tracking-wider">
+                {key.replace(/_/g, " ")}
+              </p>
               <p className="text-sm font-bold">{val}</p>
             </div>
           ))}
@@ -75,7 +91,10 @@ function UploadZone({
   label: string;
   type: "transactions" | "settlements" | "bank-statements";
   icon: string;
-  onUpload: (type: "transactions" | "settlements" | "bank-statements", file: File) => void;
+  onUpload: (
+    type: "transactions" | "settlements" | "bank-statements",
+    file: File,
+  ) => void;
   uploading: boolean;
   result: { records_stored: number; errors: string[] } | null;
 }) {
@@ -97,9 +116,14 @@ function UploadZone({
   return (
     <div
       className={`glass-card glass-card-hover p-5 transition-all duration-300 cursor-pointer ${
-        dragOver ? "border-fintrix-primary/50 bg-fintrix-primary/5 scale-[1.02]" : ""
+        dragOver
+          ? "border-fintrix-primary/50 bg-fintrix-primary/5 scale-[1.02]"
+          : ""
       }`}
-      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
       onClick={() => inputRef.current?.click()}
@@ -113,7 +137,12 @@ function UploadZone({
       />
 
       <div className="text-center">
-        <span className="material-symbols-outlined text-fintrix-primary/60 mb-2 block" style={{ fontSize: "28px" }}>{icon}</span>
+        <span
+          className="material-symbols-outlined text-fintrix-primary/60 mb-2 block"
+          style={{ fontSize: "28px" }}
+        >
+          {icon}
+        </span>
         <p className="text-sm font-medium">{label}</p>
         <p className="text-[11px] text-fintrix-text-muted mt-1">
           {uploading ? "Uploading..." : "Drop CSV or click to browse"}
@@ -140,13 +169,25 @@ function UploadZone({
 // Pipeline View
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function PipelineView() {
-  const [dataStatus, setDataStatus] = useState<{ transactions: number; settlements: number; bank_statements: number } | null>(null);
-  const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
+  const [dataStatus, setDataStatus] = useState<{
+    transactions: number;
+    settlements: number;
+    bank_statements: number;
+  } | null>(null);
+  const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
-  const [stage, setStage] = useState<"idle" | "generating" | "reconciling" | "investigating" | "done">("idle");
+  const [stage, setStage] = useState<
+    "idle" | "generating" | "reconciling" | "investigating" | "done"
+  >("idle");
   const [error, setError] = useState<string | null>(null);
-  const [sseEvents, setSseEvents] = useState<{ time: string; message: string }[]>([]);
-  const [uploadResults, setUploadResults] = useState<Record<string, { records_stored: number; errors: string[] }>>({});
+  const [sseEvents, setSseEvents] = useState<
+    { time: string; message: string }[]
+  >([]);
+  const [uploadResults, setUploadResults] = useState<
+    Record<string, { records_stored: number; errors: string[] }>
+  >({});
   const [uploading, setUploading] = useState(false);
   const eventsRef = useRef<HTMLDivElement>(null);
 
@@ -175,16 +216,23 @@ export default function PipelineView() {
 
     es.addEventListener("pipeline.step", (e) => {
       const data = JSON.parse(e.data);
-      addEvent(`${data.step}: ${data.status}${data.matched ? ` (${data.matched} matched)` : ""}`);
-      if (data.step === "investigation" && data.status === "started") setStage("investigating");
+      addEvent(
+        `${data.step}: ${data.status}${data.matched ? ` (${data.matched} matched)` : ""}`,
+      );
+      if (data.step === "investigation" && data.status === "started")
+        setStage("investigating");
     });
     es.addEventListener("pipeline.completed", (e) => {
       const data = JSON.parse(e.data);
-      addEvent(`✓ Pipeline complete — ${data.matched} matched, ${data.auto_resolved} auto-resolved, ${data.escalated} escalated`);
+      addEvent(
+        `✓ Pipeline complete — ${data.matched} matched, ${data.auto_resolved} auto-resolved, ${data.escalated} escalated`,
+      );
     });
     es.addEventListener("investigation.completed", (e) => {
       const data = JSON.parse(e.data);
-      addEvent(`🧠 #${data.exception_id}: ${data.action} (${Math.round(data.confidence * 100)}% conf)`);
+      addEvent(
+        `🧠 #${data.exception_id}: ${data.action} (${Math.round(data.confidence * 100)}% conf)`,
+      );
     });
 
     return () => es.close();
@@ -198,7 +246,10 @@ export default function PipelineView() {
   }, [sseEvents]);
 
   // Upload handler
-  async function handleUpload(type: "transactions" | "settlements" | "bank-statements", file: File) {
+  async function handleUpload(
+    type: "transactions" | "settlements" | "bank-statements",
+    file: File,
+  ) {
     setUploading(true);
     try {
       const result = await api.uploadCSV(type, file);
@@ -266,7 +317,9 @@ export default function PipelineView() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Pipeline Execution</h2>
+          <h2 className="text-2xl font-bold tracking-tight">
+            Pipeline Execution
+          </h2>
           <p className="text-sm text-fintrix-text-muted mt-1.5">
             Ingest data → Reconcile → AI Investigation → Resolve/Escalate
           </p>
@@ -296,7 +349,9 @@ export default function PipelineView() {
                 className="btn-gradient disabled:opacity-40"
                 id="btn-run"
               >
-                <span>{loading ? "Running Pipeline..." : "▶ Run Pipeline"}</span>
+                <span>
+                  {loading ? "Running Pipeline..." : "▶ Run Pipeline"}
+                </span>
               </button>
             </>
           )}
@@ -312,7 +367,10 @@ export default function PipelineView() {
       {/* Upload Zone */}
       <div>
         <h3 className="text-xs font-semibold text-fintrix-text-muted uppercase tracking-wider mb-4">
-          Data Sources {hasData && <span className="text-fintrix-success ml-2">● Loaded</span>}
+          Data Sources{" "}
+          {hasData && (
+            <span className="text-fintrix-success ml-2">● Loaded</span>
+          )}
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <UploadZone
@@ -359,40 +417,82 @@ export default function PipelineView() {
             stage="Ingest"
             icon="download"
             description="Load financial records"
-            status={stage === "generating" ? "running" : stage !== "idle" ? "done" : "idle"}
-            stats={hasData && dataStatus ? { records: dataStatus.transactions + dataStatus.settlements + dataStatus.bank_statements, sources: 3 } : undefined}
+            status={
+              stage === "generating"
+                ? "running"
+                : stage !== "idle"
+                  ? "done"
+                  : "idle"
+            }
+            stats={
+              hasData && dataStatus
+                ? {
+                    records:
+                      dataStatus.transactions +
+                      dataStatus.settlements +
+                      dataStatus.bank_statements,
+                    sources: 3,
+                  }
+                : undefined
+            }
           />
           <StageCard
             stage="Reconcile"
             icon="balance"
             description="6-step deterministic matching"
-            status={stage === "reconciling" ? "running" : pipelineResult ? "done" : "idle"}
-            stats={pipelineResult ? {
-              matched: pipelineResult.reconciliation.matched,
-              exceptions: pipelineResult.reconciliation.exceptions,
-              duration: `${pipelineResult.reconciliation.duration_ms}ms`,
-            } : undefined}
+            status={
+              stage === "reconciling"
+                ? "running"
+                : pipelineResult
+                  ? "done"
+                  : "idle"
+            }
+            stats={
+              pipelineResult
+                ? {
+                    matched: pipelineResult.reconciliation.matched,
+                    exceptions: pipelineResult.reconciliation.exceptions,
+                    duration: `${pipelineResult.reconciliation.duration_ms}ms`,
+                  }
+                : undefined
+            }
           />
           <StageCard
             stage="Investigate"
             icon="psychology"
             description="AI-powered root-cause analysis"
-            status={stage === "investigating" ? "running" : pipelineResult ? "done" : "idle"}
-            stats={pipelineResult ? {
-              investigated: pipelineResult.investigation.total_investigated,
-              "auto resolved": pipelineResult.investigation.auto_resolved,
-            } : undefined}
+            status={
+              stage === "investigating"
+                ? "running"
+                : pipelineResult
+                  ? "done"
+                  : "idle"
+            }
+            stats={
+              pipelineResult
+                ? {
+                    investigated:
+                      pipelineResult.investigation.total_investigated,
+                    "auto resolved": pipelineResult.investigation.auto_resolved,
+                  }
+                : undefined
+            }
           />
           <StageCard
             stage="Resolve"
             icon="task_alt"
             description="Risk-aware auto-resolution"
             status={stage === "done" ? "done" : "idle"}
-            stats={pipelineResult ? {
-              resolved: pipelineResult.investigation.auto_resolved,
-              escalated: pipelineResult.investigation.escalated,
-              "needs review": pipelineResult.investigation.human_review || 0,
-            } : undefined}
+            stats={
+              pipelineResult
+                ? {
+                    resolved: pipelineResult.investigation.auto_resolved,
+                    escalated: pipelineResult.investigation.escalated,
+                    "needs review":
+                      pipelineResult.investigation.human_review || 0,
+                  }
+                : undefined
+            }
           />
         </div>
       </div>
@@ -400,37 +500,115 @@ export default function PipelineView() {
       {/* Results Summary */}
       {pipelineResult && (
         <div className="glass-card p-6">
+          {(() => {
+            const partition = pipelineResult.summary.transaction_partition as
+              | {
+                  cleanly_matched: number;
+                  affected_by_exceptions: number;
+                  unclassified: number;
+                  total: number;
+                }
+              | undefined;
+            return partition ? (
+              <div className="mb-5 p-4 rounded-xl bg-fintrix-surface-2/40 border border-fintrix-border-subtle">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider">
+                    Transaction accounting
+                  </p>
+                  <span className="text-[11px] text-fintrix-text-dimmed">
+                    {partition.total} transactions classified
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <p className="text-lg font-bold text-fintrix-success">
+                      {partition.cleanly_matched}
+                    </p>
+                    <p className="text-[10px] text-fintrix-text-muted">
+                      Cleanly matched
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-fintrix-warning">
+                      {partition.affected_by_exceptions}
+                    </p>
+                    <p className="text-[10px] text-fintrix-text-muted">
+                      Exception-affected
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-fintrix-text">
+                      {partition.unclassified}
+                    </p>
+                    <p className="text-[10px] text-fintrix-text-muted">
+                      Unclassified
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null;
+          })()}
           <h3 className="text-xs font-semibold text-fintrix-text-muted uppercase tracking-wider mb-4">
             Pipeline Results Summary
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
             <div>
-              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">Total Records</p>
-              <p className="text-xl font-bold">{pipelineResult.reconciliation.total_records}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">Match Rate</p>
-              <p className="text-xl font-bold text-fintrix-success">
-                {((pipelineResult.reconciliation.matched / Math.max(pipelineResult.reconciliation.total_records, 1)) * 100).toFixed(1)}%
+              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">
+                Total Records
+              </p>
+              <p className="text-xl font-bold">
+                {pipelineResult.reconciliation.total_records}
               </p>
             </div>
             <div>
-              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">Exceptions</p>
-              <p className="text-xl font-bold text-fintrix-warning">{pipelineResult.reconciliation.exceptions}</p>
+              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">
+                Match Rate
+              </p>
+              <p className="text-xl font-bold text-fintrix-success">
+                {(
+                  (pipelineResult.reconciliation.matched /
+                    Math.max(pipelineResult.reconciliation.total_records, 1)) *
+                  100
+                ).toFixed(1)}
+                %
+              </p>
             </div>
             <div>
-              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">Auto-Resolved</p>
-              <p className="text-xl font-bold text-fintrix-accent">{pipelineResult.investigation.auto_resolved}</p>
+              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">
+                Exceptions
+              </p>
+              <p className="text-xl font-bold text-fintrix-warning">
+                {pipelineResult.reconciliation.exceptions}
+              </p>
             </div>
             <div>
-              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">Escalated</p>
-              <p className="text-xl font-bold text-fintrix-danger">{pipelineResult.investigation.escalated}</p>
+              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">
+                Auto-Resolved
+              </p>
+              <p className="text-xl font-bold text-fintrix-accent">
+                {pipelineResult.investigation.auto_resolved}
+              </p>
             </div>
             <div>
-              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">Throughput</p>
+              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">
+                Escalated
+              </p>
+              <p className="text-xl font-bold text-fintrix-danger">
+                {pipelineResult.investigation.escalated}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-1">
+                Throughput
+              </p>
               <p className="text-xl font-bold">
-                {Math.round(pipelineResult.reconciliation.total_records / (pipelineResult.reconciliation.duration_ms / 1000))}
-                <span className="text-xs text-fintrix-text-muted ml-1">rec/s</span>
+                {Math.round(
+                  pipelineResult.reconciliation.total_records /
+                    (pipelineResult.reconciliation.duration_ms / 1000),
+                )}
+                <span className="text-xs text-fintrix-text-muted ml-1">
+                  rec/s
+                </span>
               </p>
             </div>
           </div>
@@ -438,15 +616,26 @@ export default function PipelineView() {
           {/* Exception type breakdown */}
           {Boolean(pipelineResult.summary.exception_types) && (
             <div className="mt-5 pt-5 border-t border-fintrix-border">
-              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-3">Exception Types Detected</p>
+              <p className="text-[10px] text-fintrix-text-muted uppercase tracking-wider mb-3">
+                Exception Types Detected
+              </p>
               <div className="flex flex-wrap gap-2">
-                {Object.entries(pipelineResult.summary.exception_types as Record<string, number>).map(([type, count]) => (
+                {Object.entries(
+                  pipelineResult.summary.exception_types as Record<
+                    string,
+                    number
+                  >,
+                ).map(([type, count]) => (
                   <span
                     key={type}
                     className="px-3 py-1.5 rounded-lg bg-fintrix-surface-2/50 border border-fintrix-border-subtle text-xs font-medium"
                   >
-                    <span className="text-fintrix-text-muted capitalize">{type.replace(/_/g, " ")}</span>
-                    <span className="ml-2 text-fintrix-text font-bold">{String(count)}</span>
+                    <span className="text-fintrix-text-muted capitalize">
+                      {type.replace(/_/g, " ")}
+                    </span>
+                    <span className="ml-2 text-fintrix-text font-bold">
+                      {String(count)}
+                    </span>
                   </span>
                 ))}
               </div>
@@ -473,14 +662,18 @@ export default function PipelineView() {
                 key={i}
                 className="flex gap-3 py-1 text-fintrix-text-muted animate-fade-in"
               >
-                <span className="text-fintrix-text-dimmed shrink-0">{evt.time}</span>
+                <span className="text-fintrix-text-dimmed shrink-0">
+                  {evt.time}
+                </span>
                 <span className="text-fintrix-accent shrink-0">›</span>
                 <span>{evt.message}</span>
               </div>
             ))
           ) : (
             <p className="text-sm text-fintrix-text-dimmed py-4 text-center">
-              {loading ? "Waiting for pipeline events..." : "Run the pipeline to see live events"}
+              {loading
+                ? "Waiting for pipeline events..."
+                : "Run the pipeline to see live events"}
             </p>
           )}
         </div>
@@ -495,7 +688,9 @@ export default function PipelineView() {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-xs font-semibold text-fintrix-text">&gt;85% Confidence</span>
+              <span className="text-xs font-semibold text-fintrix-text">
+                &gt;85% Confidence
+              </span>
             </div>
             <p className="text-[11px] text-fintrix-text-muted pl-4">
               Auto-resolve if amount ≤ ₹10,000
@@ -504,7 +699,9 @@ export default function PipelineView() {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-amber-500" />
-              <span className="text-xs font-semibold text-fintrix-text">65-85% Confidence</span>
+              <span className="text-xs font-semibold text-fintrix-text">
+                65-85% Confidence
+              </span>
             </div>
             <p className="text-[11px] text-fintrix-text-muted pl-4">
               Requires human approval before resolution
@@ -513,7 +710,9 @@ export default function PipelineView() {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-red-500" />
-              <span className="text-xs font-semibold text-fintrix-text">&lt;65% or LLM Down</span>
+              <span className="text-xs font-semibold text-fintrix-text">
+                &lt;65% or LLM Down
+              </span>
             </div>
             <p className="text-[11px] text-fintrix-text-muted pl-4">
               Always escalated — system never guesses
@@ -522,8 +721,12 @@ export default function PipelineView() {
         </div>
         <div className="mt-4 pt-4 border-t border-fintrix-border-subtle">
           <p className="text-[11px] text-fintrix-text-dimmed">
-            <span className="text-fintrix-primary font-medium">Failure-safe:</span> If the LLM is unavailable, reconciliation still completes deterministically.
-            Unresolved exceptions are escalated for manual review — the system never fabricates resolutions.
+            <span className="text-fintrix-primary font-medium">
+              Failure-safe:
+            </span>{" "}
+            If the LLM is unavailable, reconciliation still completes
+            deterministically. Unresolved exceptions are escalated for manual
+            review — the system never fabricates resolutions.
           </p>
         </div>
       </div>

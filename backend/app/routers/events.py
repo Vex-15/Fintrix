@@ -28,6 +28,7 @@ router = APIRouter()
 # In-memory event bus for SSE (simple asyncio.Queue per connection)
 _sse_subscribers: list[asyncio.Queue] = []
 _debounce_task: asyncio.Task | None = None
+_pipeline_lock = asyncio.Lock()
 
 
 def broadcast_sse(event_type: str, data: dict):
@@ -110,11 +111,13 @@ async def _process_event(db: AsyncSession, event: Event, body: EventIn):
             "status": "processed",
         })
 
+
 def _trigger_debounced_pipeline():
     global _debounce_task
     if _debounce_task and not _debounce_task.done():
         _debounce_task.cancel()
     _debounce_task = asyncio.create_task(_debounced_pipeline_task())
+
 
 async def _debounced_pipeline_task():
     try:
@@ -122,16 +125,19 @@ async def _debounced_pipeline_task():
         from app.database import async_session
         from app.services.reconciliation_engine import run_reconciliation
         from app.services.ai_investigator import investigate_all_exceptions
-        
+
         async with async_session() as db:
-            broadcast_sse("pipeline.step", {"step": "reconciliation", "status": "started"})
+            broadcast_sse("pipeline.step", {
+                          "step": "reconciliation", "status": "started"})
             run = await run_reconciliation(db, trigger_type="webhook_debounce")
-            
+
             investigations = await investigate_all_exceptions(db, run.id)
-            
+
             # Compile results
-            auto_resolved = sum(1 for inv in investigations if inv.resolution_type == "auto")
-            escalated = sum(1 for inv in investigations if inv.resolution_type is None)
+            auto_resolved = sum(
+                1 for inv in investigations if inv.resolution_type == "auto")
+            escalated = sum(
+                1 for inv in investigations if inv.resolution_type is None)
             human_review = sum(
                 1 for inv in investigations
                 if inv.recommended_action == "escalate" and inv.resolution_type is None
@@ -140,10 +146,12 @@ async def _debounced_pipeline_task():
             # Financial metrics
             exc_result = await db.execute(select(Exception_).where(Exception_.run_id == run.id))
             exceptions = exc_result.scalars().all()
-            
+
             total_exception_amount = sum(e.amount_at_risk for e in exceptions)
-            auto_resolved_amount = sum(e.amount_at_risk for e in exceptions if e.status == "resolved")
-            human_review_amount = sum(e.amount_at_risk for e in exceptions if e.status != "resolved")
+            auto_resolved_amount = sum(
+                e.amount_at_risk for e in exceptions if e.status == "resolved")
+            human_review_amount = sum(
+                e.amount_at_risk for e in exceptions if e.status != "resolved")
             match_rate = run.matched / run.total_records if run.total_records else 0
 
             run.summary["financial_impact"] = {
@@ -171,7 +179,6 @@ async def _debounced_pipeline_task():
         print(f"Error in debounced pipeline: {e}")
 
 
-
 async def _handle_txn_captured(db: AsyncSession, payload: dict, event_id: int):
     """Handle a new captured transaction event."""
     from sqlalchemy.dialects.postgresql import insert
@@ -193,7 +200,8 @@ async def _handle_txn_captured(db: AsyncSession, payload: dict, event_id: int):
         "source": "webhook",
     }
 
-    stmt = insert(Transaction).values(txn_data).on_conflict_do_nothing(index_elements=["id"])
+    stmt = insert(Transaction).values(
+        txn_data).on_conflict_do_nothing(index_elements=["id"])
     await db.execute(stmt)
 
     await log_audit(
@@ -224,7 +232,8 @@ async def _handle_settlement_processed(db: AsyncSession, payload: dict, event_id
         "created_at": datetime.utcnow(),
     }
 
-    stmt = insert(Settlement).values(setl_data).on_conflict_do_nothing(index_elements=["id"])
+    stmt = insert(Settlement).values(
+        setl_data).on_conflict_do_nothing(index_elements=["id"])
     await db.execute(stmt)
 
     await log_audit(
@@ -368,8 +377,21 @@ async def run_full_pipeline(
     from app.services.reconciliation_engine import run_reconciliation
     from app.services.ai_investigator import investigate_all_exceptions
 
+    # SQLite permits concurrent readers but only one writer. Serialize full
+    # pipeline runs so repeated clicks cannot create lock failures or duplicate
+    # overlapping investigations.
+    if _pipeline_lock.locked():
+        return {"error": "A pipeline run is already in progress. Please wait for it to finish."}
+
+    async with _pipeline_lock:
+        return await _run_full_pipeline(db)
+
+
+async def _run_full_pipeline(db: AsyncSession):
+    """Execute one serialized reconciliation and investigation run."""
     # Step 1: Reconcile
-    broadcast_sse("pipeline.step", {"step": "reconciliation", "status": "started"})
+    broadcast_sse("pipeline.step", {
+                  "step": "reconciliation", "status": "started"})
     run = await run_reconciliation(db, trigger_type="manual")
     broadcast_sse("pipeline.step", {
         "step": "reconciliation",
@@ -382,7 +404,8 @@ async def run_full_pipeline(
     })
 
     # Step 2: Investigate exceptions
-    broadcast_sse("pipeline.step", {"step": "investigation", "status": "started"})
+    broadcast_sse("pipeline.step", {
+                  "step": "investigation", "status": "started"})
     investigations = await investigate_all_exceptions(db, run.id)
     broadcast_sse("pipeline.step", {
         "step": "investigation",
@@ -391,7 +414,8 @@ async def run_full_pipeline(
     })
 
     # Compile results
-    auto_resolved = sum(1 for inv in investigations if inv.resolution_type == "auto")
+    auto_resolved = sum(
+        1 for inv in investigations if inv.resolution_type == "auto")
     escalated = sum(1 for inv in investigations if inv.resolution_type is None)
     human_review = sum(
         1 for inv in investigations
@@ -403,10 +427,12 @@ async def run_full_pipeline(
         select(Exception_).where(Exception_.run_id == run.id)
     )
     exceptions = exc_result.scalars().all()
-    
+
     total_exception_amount = sum(e.amount_at_risk for e in exceptions)
-    auto_resolved_amount = sum(e.amount_at_risk for e in exceptions if e.status == "resolved")
-    human_review_amount = sum(e.amount_at_risk for e in exceptions if e.status != "resolved")
+    auto_resolved_amount = sum(
+        e.amount_at_risk for e in exceptions if e.status == "resolved")
+    human_review_amount = sum(
+        e.amount_at_risk for e in exceptions if e.status != "resolved")
     match_rate = run.matched / run.total_records if run.total_records else 0
 
     run.summary["financial_impact"] = {
@@ -433,17 +459,18 @@ async def run_full_pipeline(
 
     investigation_details = []
     for inv in investigations:
-         # Need exception details too, let's fetch it or just use basic info
-         exc = await db.get(Exception_, inv.exception_id)
-         investigation_details.append({
-              "exception_id": inv.exception_id,
-              "exception_type": exc.type if exc else "unknown",
-              "exception_context_str": str(exc.context) if exc else "",
-              "amount_at_risk": exc.amount_at_risk if exc else 0,
-              "category": inv.chain_of_thought.get("hypothesis_engine", [{}])[0].get("category", "unknown") if inv.chain_of_thought.get("source") == "rule_based" and inv.chain_of_thought.get("hypothesis_engine") else inv.chain_of_thought.get("llm_chain", {}).get("category", "unknown"), # Fallback category logic
-              "source_path": inv.chain_of_thought.get("source", "unknown"),
-              "resolution_type": inv.resolution_type,
-         })
+        # Need exception details too, let's fetch it or just use basic info
+        exc = await db.get(Exception_, inv.exception_id)
+        investigation_details.append({
+            "exception_id": inv.exception_id,
+            "exception_type": exc.type if exc else "unknown",
+            "exception_context_str": str(exc.context) if exc else "",
+            "amount_at_risk": exc.amount_at_risk if exc else 0,
+            # Fallback category logic
+            "category": inv.chain_of_thought.get("hypothesis_engine", [{}])[0].get("category", "unknown") if inv.chain_of_thought.get("source") == "rule_based" and inv.chain_of_thought.get("hypothesis_engine") else inv.chain_of_thought.get("llm_chain", {}).get("category", "unknown"),
+            "source_path": inv.chain_of_thought.get("source", "unknown"),
+            "resolution_type": inv.resolution_type,
+        })
 
     return {
         "run_id": run.id,

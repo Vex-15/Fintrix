@@ -3,11 +3,29 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
-engine = create_async_engine(
-    settings.database_url,
-    echo=False,
-    pool_pre_ping=True,
-)
+engine_options = {
+    "echo": False,
+    "pool_pre_ping": True,
+}
+if settings.database_url.startswith("sqlite"):
+    engine_options["connect_args"] = {"timeout": 30}
+
+engine = create_async_engine(settings.database_url, **engine_options)
+
+
+def _configure_sqlite(connection, _record):
+    """Allow reads during writes and wait briefly instead of failing on locks."""
+    if settings.database_url.startswith("sqlite"):
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
+
+
+if settings.database_url.startswith("sqlite"):
+    from sqlalchemy import event
+
+    event.listen(engine.sync_engine, "connect", _configure_sqlite)
 
 async_session = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False)
