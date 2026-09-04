@@ -2,200 +2,94 @@
 
 ### AI-Powered Financial Reconciliation & Exception Management
 
-Fintrix is an AI-powered finance controller that automates transaction reconciliation, identifies discrepancies, investigates exceptions, and provides controlled resolution workflows.
+Fintrix automates the reconciliation of **settlements against bank credits**, replacing manual spreadsheet-based checks with a combination of deterministic financial rules and targeted AI investigation.
 
-Built for the **Razorpay AI Buildathon — Finance Controller Track**.
+> **Rules handle what can be calculated. AI handles what needs reasoning.**
 
----
+## What It Does
 
-## What Fintrix Does
+* **Automated Reconciliation** — Matches transactions, settlements, and bank credits using IDs, amounts, timing, fees, GST, and fuzzy matching.
+* **Exception Detection** — Identifies missing settlements, duplicates, timing issues, fee/GST discrepancies, and amount mismatches.
+* **AI Investigation** — Investigates genuinely ambiguous exceptions, generates possible causes, cites financial evidence, and assigns confidence.
+* **Resolution Guardrails** — Uses confidence and amount thresholds to determine whether an exception can be safely resolved or requires human review.
+* **Analytics & Forecasting** — Tracks reconciliation performance, financial discrepancies, tax/fee differences, and short-term cash flow.
+* **Q&A Agent** — Lets finance teams ask questions about their reconciliation data in natural language instead of SQL.
+* **Audit Trail** — Records reconciliation, investigation, and resolution activity for traceability.
 
-Fintrix transforms the traditional manual reconciliation workflow into an automated, AI-assisted pipeline.
+## How It Works
 
 ```text
-Payment & Settlement Data
-          ↓
-     Data Ingestion
-          ↓
- Reconciliation Engine
-          ↓
- ┌────────┴────────┐
- ↓                 ↓
-Matched         Exceptions
-                    ↓
-            AI Investigation
-                    ↓
-          ┌─────────┴─────────┐
-          ↓                   ↓
-       Resolve             Escalate
-          └─────────┬─────────┘
-                    ↓
-               Audit Trail
+Transactions + Settlements + Bank Credits
+                  ↓
+          Deterministic Rules
+                  ↓
+             Reconciliation
+             ↙           ↘
+         Matched       Exception
+                          ↓
+                    AI Investigation
+                          ↓
+                   Risk Guardrails
+                    ↙           ↘
+                Resolve       Escalate
+                          ↓
+                     Audit Trail
 ```
 
-## Key Features
+## Why AI Isn't Used Everywhere
 
-* **Automated Reconciliation** — Match payments, settlements, and financial records.
-* **Exception Detection** — Identify mismatches, missing transactions, duplicates, and discrepancies.
-* **AI Investigation** — Analyze exceptions, gather context, evaluate evidence, and recommend resolutions.
-* **Resolution Guardrails** — Apply confidence and transaction-value thresholds before automated resolution.
-* **Human Escalation** — Route high-value or low-confidence cases for manual review.
-* **Real-Time Processing** — Process payment and reconciliation events through WebSockets and webhooks.
-* **Audit Trail** — Track financial actions, decisions, state changes, and investigation history.
-* **Analytics** — Monitor reconciliation performance, exceptions, resolution time, and operational savings.
-* **Razorpay Integration** — Support payments, settlements, OAuth, and webhook events.
+Most reconciliation problems are deterministic. Sending every exception to an LLM would add unnecessary cost, latency, and uncertainty.
+
+Fintrix therefore uses AI **only when the rules cannot confidently explain an exception**.
+
+AI decisions are grounded in actual transaction/settlement evidence and constrained by resolution guardrails.
+
+## Demo Mode
+
+This repository currently runs primarily in **Demo Mode** using deterministic synthetic financial data.
+
+### Available in Demo Mode
+
+* Full reconciliation pipeline
+* Exception detection
+* AI investigation
+* Evidence & confidence scoring
+* Resolution recommendations
+* Guardrails & human review
+* Analytics
+* Tax/fee reconciliation
+* Cash forecasting
+* Natural-language Q&A
+* Audit trail
+
+### Intentionally Held Back
+
+To keep the demo safe, reproducible, and independent of external systems:
+
+* Live Razorpay financial data
+* Production Razorpay OAuth/API operations
+* Live production webhooks
+* Real financial transactions or irreversible actions
+* External Slack/email notification workflows
+
+The **core reconciliation and AI investigation pipeline runs end-to-end**; Demo Mode mainly replaces live inputs and external actions with controlled data.
 
 ## Tech Stack
 
-| Layer          | Technologies                          |
-| -------------- | ------------------------------------- |
-| Frontend       | React, TypeScript, Vite, Tailwind CSS |
-| Backend        | Python, FastAPI, SQLAlchemy           |
-| Database       | PostgreSQL                            |
-| AI             | Google Gemini                         |
-| Payments       | Razorpay API, OAuth, Webhooks         |
-| Real-Time      | WebSockets                            |
-| Security       | JWT, RBAC                             |
-| Infrastructure | Docker                                |
+**Frontend:** React, TypeScript, Vite, Tailwind CSS
+**Backend:** Python, FastAPI, SQLAlchemy
+**Database:** PostgreSQL / SQLite
+**AI:** Google Gemini
+**Integration:** Razorpay API architecture
+**Realtime:** Server-Sent Events
+**Deployment:** Docker
 
-## Architecture
-
-```text
-                         Razorpay
-                            │
-                    API / OAuth / Webhooks
-                            │
-                            ▼
-                    ┌───────────────┐
-                    │   Ingestion   │
-                    └───────┬───────┘
-                            │
-                            ▼
-                 ┌────────────────────┐
-                 │ Reconciliation      │
-                 │ Engine              │
-                 └─────────┬──────────┘
-                           │
-                    ┌──────┴──────┐
-                    │             │
-                 Matched       Exception
-                                  │
-                                  ▼
-                         ┌────────────────┐
-                         │ AI Investigator│
-                         └───────┬────────┘
-                                 │
-                         ┌───────┴───────┐
-                         │               │
-                      Resolve         Escalate
-                         │               │
-                         └───────┬───────┘
-                                 ▼
-                           Audit Trail
-                                 │
-                                 ▼
-                            PostgreSQL
-                                 │
-                                 ▼
-                           React Dashboard
-```
-
-## Project Structure
-
-```text
-Fintrix/
-├── backend/
-│   ├── app/
-│   │   ├── routers/
-│   │   ├── services/
-│   │   ├── utils/
-│   │   ├── database.py
-│   │   ├── models.py
-│   │   ├── schemas.py
-│   │   └── main.py
-│   ├── requirements.txt
-│   └── Dockerfile
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── api.ts
-│   │   ├── App.tsx
-│   │   └── main.tsx
-│   ├── package.json
-│   └── Dockerfile
-│
-└── .env.example
-```
-
-## Getting Started
-
-### Prerequisites
-
-* Python 3.10+
-* Node.js 18+
-* PostgreSQL
-* npm
-
-### Backend
-
-```bash
-cd backend
-
-python -m venv .venv
-```
-
-Windows:
-
-```bash
-.venv\Scripts\activate
-```
-
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-```
-
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### Environment
-
-Create a `.env` file from `.env.example`:
-
-```env
-DATABASE_URL=your-database-url
-GEMINI_API_KEY=your-api-key
-LLM_PROVIDER=gemini
-```
-
-Never commit credentials or API keys.
-
-## Demo Flow
-
-```text
-1. Connect / Ingest Financial Data
-2. Run Reconciliation
-3. Review Matched Transactions
-4. Investigate Exceptions with AI
-5. Resolve or Escalate
-6. Review Audit Trail
-7. Analyze Performance & ROI
-```
-
-## Hackathon
+## Built For
 
 **Razorpay AI Buildathon**
-**Track:** Finance Controller
-**Project:** Fintrix
+
+Fintrix explores how AI can make financial reconciliation faster and more intelligent **without giving an LLM unrestricted control over financial decisions.**
+
+---
+
+**Author:** Vedant Kowdiki · [GitHub](https://github.com/Vex-15)
