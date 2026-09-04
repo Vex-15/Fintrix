@@ -1,10 +1,10 @@
 """
 Settlement Q&A Agent — Natural-language question answering over financial data.
 
-Converts user questions into safe SELECT-only SQL via Gemini,
+Converts user questions into safe SELECT-only SQL via Groq,
 executes them against the DB, and returns a prose summary.
 
-Graceful degradation: if Gemini is unavailable, returns pre-computed
+Graceful degradation: if Groq is unavailable, returns pre-computed
 aggregate statistics to answer common questions.
 """
 
@@ -85,6 +85,96 @@ _FORBIDDEN_KEYWORDS = re.compile(
 )
 
 
+def _deterministic_query(question: str) -> tuple[str, str] | None:
+    """Map high-signal operational questions to known safe queries.
+
+    These paths make the agent useful without an LLM key and avoid asking an
+    LLM to rediscover straightforward dashboard data.
+    """
+    normalized = question.lower().strip()
+    date_filter = " AND date(created_at) = CURRENT_DATE" if "today" in normalized else ""
+
+    if "unresolved" in normalized or "open exception" in normalized or "pending exception" in normalized:
+        return (
+            "SELECT id, type, severity, status, amount_at_risk / 100.0 AS amount_at_risk_rupees, created_at "
+            "FROM exceptions WHERE status NOT IN ('resolved') ORDER BY amount_at_risk DESC LIMIT 50",
+            "Here are the unresolved exceptions ordered by amount at risk.",
+        )
+
+    if "auto-resolved" in normalized or "auto resolved" in normalized or "automatically resolved" in normalized:
+        return (
+            "SELECT COUNT(*) AS auto_resolved_count FROM investigations WHERE resolution_type = 'auto'",
+            "This is the number of exceptions resolved automatically by the agent.",
+        )
+
+    if "fee discrep" in normalized or "fee mismatch" in normalized or "top fee" in normalized:
+        return (
+            "SELECT id, amount / 100.0 AS amount_rupees, fee / 100.0 AS fee_rupees, "
+            "tax / 100.0 AS tax_rupees, settlement_id, created_at "
+            "FROM transactions WHERE type = 'payment' AND status = 'captured' "
+            "AND fee IS NOT NULL ORDER BY ABS(fee - amount * 0.02) DESC LIMIT 5",
+            "Here are the five captured payments with the largest deviation from the expected 2% MDR fee.",
+        )
+
+    if "gst" in normalized or "tax" in normalized:
+        return (
+            "SELECT COUNT(*) AS captured_payments, "
+            "SUM(tax) / 100.0 AS total_gst_rupees, "
+            "SUM(fee) / 100.0 AS total_fee_rupees "
+            f"FROM transactions WHERE type = 'payment' AND status = 'captured'{date_filter}",
+            "This summarizes GST and fees recorded on captured payments.",
+        )
+
+    if "failed payment" in normalized or "failed transaction" in normalized:
+        return (
+            f"SELECT id, amount / 100.0 AS amount_rupees, method, created_at "
+            f"FROM transactions WHERE type = 'payment' AND status = 'failed'{date_filter} "
+            "ORDER BY created_at DESC LIMIT 50",
+            "Here are the failed payment attempts for the requested period.",
+        )
+
+    if "refund" in normalized:
+        return (
+            f"SELECT COUNT(*) AS refund_count, SUM(amount) / 100.0 AS total_refunded_rupees "
+            f"FROM transactions WHERE type = 'refund'{date_filter}",
+            "This summarizes refunds recorded for the requested period.",
+        )
+
+    if "reconciliation" in normalized and ("latest" in normalized or "last" in normalized or "accuracy" in normalized):
+        return (
+            "SELECT id, status, total_records, matched, mismatched, unmatched, exceptions_count, "
+            "ROUND(CAST(matched AS FLOAT) / NULLIF(total_records, 0) * 100, 2) AS accuracy_percent, "
+            "completed_at FROM reconciliation_runs ORDER BY completed_at DESC LIMIT 1",
+            "This is the latest reconciliation run with its accuracy and exception totals.",
+        )
+
+    if "high severity" in normalized or "critical exception" in normalized:
+        return (
+            "SELECT id, type, severity, status, amount_at_risk / 100.0 AS amount_at_risk_rupees, created_at "
+            "FROM exceptions WHERE severity IN ('high', 'critical') AND status != 'resolved' "
+            "ORDER BY amount_at_risk DESC LIMIT 50",
+            "Here are the unresolved high-severity and critical exceptions ordered by financial exposure.",
+        )
+
+    if "settlement summary" in normalized or "settlement total" in normalized or "how many settlement" in normalized:
+        return (
+            "SELECT status, COUNT(*) AS settlement_count, "
+            "SUM(amount) / 100.0 AS total_amount_rupees "
+            "FROM settlements GROUP BY status ORDER BY total_amount_rupees DESC LIMIT 50",
+            "This summarizes settlement counts and amounts by status.",
+        )
+
+    if "amount at risk" in normalized or "risk" in normalized:
+        return (
+            "SELECT COUNT(*) AS exception_count, "
+            "SUM(amount_at_risk) / 100.0 AS amount_at_risk_rupees "
+            "FROM exceptions WHERE status != 'resolved'",
+            "This shows the current unresolved exception count and amount at risk.",
+        )
+
+    return None
+
+
 def _validate_sql(sql: str) -> bool:
     """Validate that the SQL is a safe SELECT-only query."""
     if not sql or not sql.strip():
@@ -127,7 +217,7 @@ async def _call_groq_qa(question: str) -> dict:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "groq/compound",
+                "model": settings.groq_model,
                 "messages": [
                     {"role": "user", "content": prompt},
                 ],
@@ -139,27 +229,6 @@ async def _call_groq_qa(question: str) -> dict:
         data = response.json()
         content = data["choices"][0]["message"]["content"]
         return _extract_qa_json(content)
-
-
-async def _call_gemini_qa(question: str) -> dict:
-    """Call Gemini to generate SQL from a natural-language question."""
-    import google.generativeai as genai
-
-    genai.configure(api_key=settings.gemini_api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-
-    prompt = f"{QA_SYSTEM_PROMPT}\n\nUser question: {question}"
-
-    response = model.generate_content(
-        [{"role": "user", "parts": [{"text": prompt}]}],
-        generation_config=genai.types.GenerationConfig(
-            response_mime_type="application/json",
-            temperature=0.1,
-        ),
-    )
-
-    text_resp = response.text.strip()
-    return json.loads(text_resp)
 
 
 async def _get_aggregate_stats(db: AsyncSession) -> dict:
@@ -177,11 +246,13 @@ async def _get_aggregate_stats(db: AsyncSession) -> dict:
     )).scalar() or 0
 
     resolved = (await db.execute(
-        select(func.count(Exception_.id)).where(Exception_.status == "resolved")
+        select(func.count(Exception_.id)).where(
+            Exception_.status == "resolved")
     )).scalar() or 0
 
     escalated = (await db.execute(
-        select(func.count(Exception_.id)).where(Exception_.status == "escalated")
+        select(func.count(Exception_.id)).where(
+            Exception_.status == "escalated")
     )).scalar() or 0
 
     total_at_risk = (await db.execute(
@@ -246,10 +317,25 @@ async def ask_question(db: AsyncSession, question: str) -> dict:
             "answer": str,       # Prose answer
             "data": list[dict],  # Raw query results
             "sql": str | None,   # Generated SQL (if LLM was used)
-            "source": str,       # "gemini" | "fallback"
+            "source": str,       # "groq" | "fallback"
         }
     """
-    # Try LLM (Groq first, then Gemini)
+    deterministic = _deterministic_query(question)
+    if deterministic:
+        sql, explanation = deterministic
+        result = await db.execute(text(sql))
+        data = [dict(row) for row in result.mappings().all()[:50]]
+        answer = _summarize_rows(explanation, data)
+        return {
+            "question": question,
+            "answer": answer,
+            "data": data,
+            "sql": sql,
+            "source": "deterministic",
+        }
+
+    # Q&A is intentionally Groq-only. Gemini is used by other legacy paths,
+    # but must not silently take over this agent when Groq is unavailable.
     llm_source = None
     llm_result = None
 
@@ -257,13 +343,6 @@ async def ask_question(db: AsyncSession, question: str) -> dict:
         try:
             llm_result = await _call_groq_qa(question)
             llm_source = "groq"
-        except Exception:
-            pass
-
-    if not llm_result and settings.gemini_api_key:
-        try:
-            llm_result = await _call_gemini_qa(question)
-            llm_source = "gemini"
         except Exception:
             pass
 
@@ -281,7 +360,7 @@ async def ask_question(db: AsyncSession, question: str) -> dict:
 
                     # Generate prose answer from data
                     if data:
-                        answer = f"{explanation} Found {len(data)} result(s)."
+                        answer = _summarize_rows(explanation, data)
                         if len(data) == 1:
                             # Single result — include values in answer
                             row = data[0]
@@ -362,3 +441,19 @@ async def ask_question(db: AsyncSession, question: str) -> dict:
         "sql": None,
         "source": "fallback",
     }
+
+
+def _summarize_rows(explanation: str, data: list[dict]) -> str:
+    """Turn query output into an operator-friendly, grounded answer."""
+    if not data:
+        return f"{explanation} No results found."
+
+    row = data[0]
+    if len(data) == 1:
+        details = ", ".join(
+            f"{key.replace('_', ' ')}: {value}"
+            for key, value in row.items()
+            if value is not None
+        )
+        return f"{explanation} {details}."
+    return f"{explanation} Found {len(data)} result(s); the highest-priority item is {row.get('id', 'the first result')}."

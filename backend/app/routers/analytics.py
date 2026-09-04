@@ -60,8 +60,10 @@ async def get_trends(
         select(
             func.date(Exception_.created_at).label("day"),
             func.count(Exception_.id).label("total"),
-            func.sum(case((Exception_.status == "resolved", 1), else_=0)).label("resolved"),
-            func.sum(case((Exception_.status == "escalated", 1), else_=0)).label("escalated"),
+            func.sum(case((Exception_.status == "resolved", 1), else_=0)).label(
+                "resolved"),
+            func.sum(case((Exception_.status == "escalated", 1), else_=0)).label(
+                "escalated"),
             func.sum(Exception_.amount_at_risk).label("total_risk"),
         )
         .where(Exception_.created_at >= cutoff)
@@ -82,7 +84,7 @@ async def get_trends(
     # Calculate ageing metrics for unresolved exceptions
     now = datetime.utcnow()
     ageing = {"0_to_3_days": 0, "4_to_7_days": 0, "8_plus_days": 0}
-    
+
     unresolved = await db.execute(
         select(Exception_.created_at)
         .where(Exception_.status != "resolved")
@@ -187,7 +189,7 @@ async def get_roi_metrics(
 ):
     """
     ROI calculator: manual hours saved, cost savings estimate.
-    
+
     Assumptions:
     - Manual reconciliation: ~2 minutes per transaction
     - Manual investigation: ~15 minutes per exception
@@ -222,7 +224,8 @@ async def get_roi_metrics(
 
     # Calculate time savings
     recon_hours_saved = (total_records * MANUAL_RECON_MINUTES_PER_TXN) / 60
-    investigation_hours_saved = (auto_resolved * MANUAL_INVESTIGATION_MINUTES_PER_EXCEPTION) / 60
+    investigation_hours_saved = (
+        auto_resolved * MANUAL_INVESTIGATION_MINUTES_PER_EXCEPTION) / 60
     total_hours_saved = recon_hours_saved + investigation_hours_saved
     cost_saved = total_hours_saved * COST_PER_HOUR
 
@@ -333,7 +336,7 @@ async def get_confidence_calibration(
 
     calibration_curve = []
     total_weighted_error = 0.0
-    total_count = len(rows)
+    calibrated_count = 0
 
     for low, high in bands:
         band_items = [
@@ -367,8 +370,9 @@ async def get_confidence_calibration(
                 pass  # overridden — counts as incorrect
             else:
                 # escalated — we don't know, treat as neutral (exclude)
-                total_count -= 1
                 continue
+
+            calibrated_count += 1
 
         count = len(band_items)
         avg_confidence = sum(inv.confidence for inv, _ in band_items) / count
@@ -385,7 +389,7 @@ async def get_confidence_calibration(
         # ECE contribution
         total_weighted_error += count * abs(avg_confidence - actual_accuracy)
 
-    ece = round(total_weighted_error / max(total_count, 1), 4)
+    ece = round(total_weighted_error / max(calibrated_count, 1), 4)
 
     return {
         "calibration_curve": calibration_curve,
@@ -397,6 +401,7 @@ async def get_confidence_calibration(
             else "poor"
         ),
         "total_investigations": len(rows),
+        "calibrated_investigations": calibrated_count,
     }
 
 
@@ -458,8 +463,10 @@ async def get_threshold_sensitivity(
         auto_rate = auto_count / total if total > 0 else 0
 
         # How many of those would be errors?
-        errors_at_threshold = sum(1 for inv, _ in would_auto if inv.id in error_ids)
-        error_rate = errors_at_threshold / max(auto_count, 1) if auto_count > 0 else 0
+        errors_at_threshold = sum(
+            1 for inv, _ in would_auto if inv.id in error_ids)
+        error_rate = errors_at_threshold / \
+            max(auto_count, 1) if auto_count > 0 else 0
 
         escalation_rate = 1.0 - auto_rate
 
@@ -502,11 +509,13 @@ async def run_determinism_test(
     from app.services.reconciliation_engine import run_reconciliation as run_recon
 
     async def _run_once() -> dict:
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:", echo=False)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-        session_maker = async_sessionmaker(engine, class_=AS, expire_on_commit=False)
+        session_maker = async_sessionmaker(
+            engine, class_=AS, expire_on_commit=False)
         async with session_maker() as session:
             data = generate_dataset()
 
@@ -531,7 +540,8 @@ async def run_determinism_test(
             )
             exceptions = exc_result.scalars().all()
             exc_details = sorted(
-                [{"type": e.type, "amount": e.amount_at_risk} for e in exceptions],
+                [{"type": e.type, "amount": e.amount_at_risk}
+                    for e in exceptions],
                 key=lambda x: (x["type"], x["amount"]),
             )
 
@@ -556,10 +566,12 @@ async def run_determinism_test(
             diffs.append({"field": key, "run1": run1[key], "run2": run2[key]})
 
     if run1["exception_types"] != run2["exception_types"]:
-        diffs.append({"field": "exception_types", "run1": run1["exception_types"], "run2": run2["exception_types"]})
+        diffs.append({"field": "exception_types",
+                     "run1": run1["exception_types"], "run2": run2["exception_types"]})
 
     if run1["exception_details"] != run2["exception_details"]:
-        diffs.append({"field": "exception_details", "note": "Exception details differ"})
+        diffs.append({"field": "exception_details",
+                     "note": "Exception details differ"})
 
     return {
         "is_deterministic": len(diffs) == 0,

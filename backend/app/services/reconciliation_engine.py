@@ -49,20 +49,23 @@ async def compute_priority(db: AsyncSession, amount_at_risk: int, exc_type: str,
     else:
         severity = "critical"
 
-    query = select(func.count(Exception_.id)).where(Exception_.type == exc_type, Exception_.status == "detected")
+    query = select(func.count(Exception_.id)).where(
+        Exception_.type == exc_type, Exception_.status == "detected")
     if merchant_id:
         query = query.where(Exception_.merchant_id == merchant_id)
-        
+
     recent_count = (await db.execute(query)).scalar() or 0
-    
+
     rationale = f"Base severity '{severity}' due to amount at risk (₹{amount_at_risk/100:,.2f}). "
     if recent_count > 5:
         rationale += f"Elevated priority: {recent_count} recent unresolved exceptions of type '{exc_type}' detected."
-        if severity == "low": severity = "medium"
-        elif severity == "medium": severity = "high"
+        if severity == "low":
+            severity = "medium"
+        elif severity == "medium":
+            severity = "high"
     else:
         rationale += "No significant recurring pattern detected."
-        
+
     return severity, rationale
 
 
@@ -202,7 +205,8 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
     # STEP 2: Ensemble Matching (Bank Statements)
     # -----------------------------------------------------------------------
     unmatched_settlements = settlements
-    unmatched_bank_stmts = [b for b in bank_stmts if b.id not in matched_bank_ids]
+    unmatched_bank_stmts = [
+        b for b in bank_stmts if b.id not in matched_bank_ids]
 
     # Run ensemble matching
     ensemble_results = find_best_matches(
@@ -262,7 +266,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
             )
             db.add(exc)
             exceptions_created.append(exc)
-            
+
             # Remove transactions from matched_txn_ids since settlement is mismatched
             for t in setl_txns:
                 if t.id in matched_txn_ids:
@@ -314,7 +318,7 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
             exceptions_created.append(exc)
             await log_audit(db, "exception", setl.id, "detected", "system",
                             new_state={"type": "missing_bank_entry", "utr": setl.utr})
-                            
+
             # Remove transactions from matched_txn_ids since settlement has no bank entry
             for t in txns:
                 if t.settlement_id == setl.id and t.id in matched_txn_ids:
@@ -377,7 +381,8 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
     # STEP 4: Duplicate Detection
     # Find payments with same (amount, method, order_id) within 30 min window.
     # -----------------------------------------------------------------------
-    payments_only = [t for t in txns if t.type == "payment" and t.status == "captured"]
+    payments_only = [t for t in txns if t.type ==
+                     "payment" and t.status == "captured"]
     seen_groups: dict[str, list[Transaction]] = {}
 
     for txn in payments_only:
@@ -394,7 +399,8 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
         group.sort(key=lambda t: t.created_at or datetime.min)
 
         for i in range(1, len(group)):
-            time_diff = (group[i].created_at - group[i - 1].created_at).total_seconds()
+            time_diff = (group[i].created_at -
+                         group[i - 1].created_at).total_seconds()
             if abs(time_diff) <= 1800:  # within 30 minutes
                 sev, rat = await compute_priority(db, group[i].amount, "duplicate_suspected", merchant_id)
                 exc = Exception_(
@@ -510,11 +516,31 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
     n_exceptions = len(exceptions_created)
     n_unmatched = total_txns - n_matched - n_exceptions
 
+    # Exception rows are findings, not mutually exclusive transaction buckets:
+    # one transaction can have several findings and some findings are settlement-level.
+    # Build a separate transaction partition for reporting without changing the
+    # established exception-row count used by the API.
+    affected_txn_ids: set[str] = set()
+    for exception in exceptions_created:
+        context = exception.context or {}
+        for key in ("transaction_id", "original_id", "duplicate_id"):
+            value = context.get(key)
+            if value:
+                affected_txn_ids.add(str(value))
+        for key in ("payment_ids", "refund_ids"):
+            values = context.get(key) or []
+            affected_txn_ids.update(str(value) for value in values)
+
+    clean_matched_ids = matched_txn_ids - affected_txn_ids
+    classified_txn_ids = clean_matched_ids | affected_txn_ids
+    unclassified_txn_count = max(0, total_txns - len(classified_txn_ids))
+
     run.status = "completed"
     run.completed_at = datetime.utcnow()
     run.total_records = total_txns
     run.matched = n_matched
-    run.mismatched = sum(1 for e in exceptions_created if e.type == "amount_mismatch")
+    run.mismatched = sum(
+        1 for e in exceptions_created if e.type == "amount_mismatch")
     run.unmatched = max(0, n_unmatched)
     run.exceptions_count = n_exceptions
     run.duration_ms = elapsed_ms
@@ -522,13 +548,20 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
         "settlements_checked": len(settlements),
         "bank_statements_checked": len(bank_stmts),
         "ensemble_matches": len(ensemble_results),
+        "transaction_partition": {
+            "cleanly_matched": len(clean_matched_ids),
+            "affected_by_exceptions": len(affected_txn_ids),
+            "unclassified": unclassified_txn_count,
+            "total": total_txns,
+        },
         "exception_types": {},
     }
 
     # Count exception types
     for exc in exceptions_created:
         t = exc.type
-        run.summary["exception_types"][t] = run.summary["exception_types"].get(t, 0) + 1
+        run.summary["exception_types"][t] = run.summary["exception_types"].get(
+            t, 0) + 1
 
     await db.flush()
 
@@ -539,6 +572,6 @@ async def run_reconciliation(db: AsyncSession, trigger_type: str = "manual", mer
                         "exceptions": run.exceptions_count,
                         "duration_ms": elapsed_ms,
                         "ensemble_matches": len(ensemble_results),
-                    })
+    })
 
     return run

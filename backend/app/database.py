@@ -9,7 +9,8 @@ engine = create_async_engine(
     pool_pre_ping=True,
 )
 
-async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async_session = async_sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False)
 
 
 class Base(DeclarativeBase):
@@ -29,6 +30,9 @@ async def get_db() -> AsyncSession:
 
 async def ensure_database():
     """Auto-create the 'fintrix' database if it doesn't exist."""
+    if settings.database_url.startswith("sqlite"):
+        return
+
     import asyncpg
 
     # Parse connection details from the URL
@@ -66,4 +70,3 @@ async def init_db():
 async def close_db():
     """Dispose of the engine. Called on app shutdown."""
     await engine.dispose()
-
